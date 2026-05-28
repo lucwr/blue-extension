@@ -1,0 +1,19 @@
+node_modules/
+dist/
+build/
+.DS_Store
+*.log
+.env
+.env.local
+.env.*.local
+
+# Tooling caches
+.vite/
+.turbo/
+.cache/
+
+# Editor
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.example.json

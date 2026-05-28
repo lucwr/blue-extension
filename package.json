@@ -1,0 +1,29 @@
+{
+  "name": "resume-maker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-powered Chrome Extension for automated job bidding, resume generation, and ATS-optimized PDF export.",
+  "workspaces": [
+    "extension",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:*",
+    "dev:extension": "npm --workspace extension run dev",
+    "dev:backend": "npm --workspace backend run dev",
+    "build": "npm-run-all build:*",
+    "build:extension": "npm --workspace extension run build",
+    "build:backend": "npm --workspace backend run build",
+    "typecheck": "npm-run-all typecheck:*",
+    "typecheck:extension": "npm --workspace extension run typecheck",
+    "typecheck:backend": "npm --workspace backend run typecheck",
+    "clean": "rimraf extension/dist backend/dist"
+  },
+  "devDependencies": {
+    "npm-run-all": "^4.1.5",
+    "rimraf": "^5.0.5"
+  },
+  "engines": {
+    "node": ">=18.18"
+  }
+}

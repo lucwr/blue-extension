@@ -1,0 +1,71 @@
+{
+  "manifest_version": 3,
+  "name": "Resume Maker — AI Job Bidding",
+  "version": "0.1.0",
+  "description": "Detect job postings, analyze with AI, and generate ATS-optimized resumes and proposals.",
+  "minimum_chrome_version": "114",
+  "action": {
+    "default_popup": "src/popup/index.html",
+    "default_title": "Resume Maker",
+    "default_icon": {
+      "16": "public/icons/icon-16.png",
+      "32": "public/icons/icon-32.png",
+      "48": "public/icons/icon-48.png",
+      "128": "public/icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "public/icons/icon-16.png",
+    "32": "public/icons/icon-32.png",
+    "48": "public/icons/icon-48.png",
+    "128": "public/icons/icon-128.png"
+  },
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.upwork.com/*",
+        "https://www.linkedin.com/*",
+        "https://www.indeed.com/*",
+        "https://www.freelancer.com/*",
+        "https://remoteok.com/*",
+        "https://wellfound.com/*"
+      ],
+      "js": ["src/content/index.ts"],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["src/content/index.ts"],
+      "run_at": "document_idle",
+      "all_frames": false,
+      "match_about_blank": false
+    }
+  ],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "downloads",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://www.upwork.com/*",
+    "https://www.linkedin.com/*",
+    "https://www.indeed.com/*",
+    "https://www.freelancer.com/*",
+    "https://remoteok.com/*",
+    "https://wellfound.com/*",
+    "http://localhost:8787/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/popup/index.html", "public/icons/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

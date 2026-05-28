@@ -1,0 +1,11 @@
+/// <reference types="vite/client" />
+
+interface ImportMetaEnv {
+  readonly VITE_DEFAULT_BACKEND_URL?: string;
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}
+
+declare const __DEV__: boolean;
