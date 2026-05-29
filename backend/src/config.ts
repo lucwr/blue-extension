@@ -16,17 +16,19 @@ const schema = z.object({
 
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 chars').default('dev-secret-please-replace-me'),
 
-  ANTHROPIC_API_KEY: z.string().min(1, 'ANTHROPIC_API_KEY is required'),
-  ANTHROPIC_MODEL: z.string().default('claude-sonnet-4-6'),
-  ANTHROPIC_MODEL_ANALYZE: z.string().optional(),
-  ANTHROPIC_MODEL_RESUME: z.string().optional(),
-  ANTHROPIC_MODEL_PROPOSAL: z.string().optional(),
-  ANTHROPIC_TIMEOUT_MS: z
+  OPENROUTER_API_KEY: z.string().min(1, 'OPENROUTER_API_KEY is required'),
+  OPENROUTER_BASE_URL: z.string().url().default('https://openrouter.ai/api/v1'),
+
+  LLM_MODEL: z.string().default('anthropic/claude-3.5-sonnet'),
+  LLM_MODEL_ANALYZE: z.string().optional(),
+  LLM_MODEL_RESUME: z.string().optional(),
+  LLM_MODEL_PROPOSAL: z.string().optional(),
+  LLM_TIMEOUT_MS: z
     .string()
     .default('60000')
     .transform((v) => Number.parseInt(v, 10))
     .pipe(z.number().int().positive()),
-  ANTHROPIC_MAX_VALIDATION_RETRIES: z
+  LLM_MAX_VALIDATION_RETRIES: z
     .string()
     .default('2')
     .transform((v) => Number.parseInt(v, 10))
@@ -62,16 +64,17 @@ export const config = {
   jwt: {
     secret: parsed.data.JWT_SECRET,
   },
-  anthropic: {
-    apiKey: parsed.data.ANTHROPIC_API_KEY,
+  llm: {
+    apiKey: parsed.data.OPENROUTER_API_KEY,
+    baseUrl: parsed.data.OPENROUTER_BASE_URL,
     models: {
-      default: parsed.data.ANTHROPIC_MODEL,
-      analyze: parsed.data.ANTHROPIC_MODEL_ANALYZE ?? parsed.data.ANTHROPIC_MODEL,
-      resume: parsed.data.ANTHROPIC_MODEL_RESUME ?? parsed.data.ANTHROPIC_MODEL,
-      proposal: parsed.data.ANTHROPIC_MODEL_PROPOSAL ?? parsed.data.ANTHROPIC_MODEL,
+      default: parsed.data.LLM_MODEL,
+      analyze: parsed.data.LLM_MODEL_ANALYZE ?? parsed.data.LLM_MODEL,
+      resume: parsed.data.LLM_MODEL_RESUME ?? parsed.data.LLM_MODEL,
+      proposal: parsed.data.LLM_MODEL_PROPOSAL ?? parsed.data.LLM_MODEL,
     },
-    timeoutMs: parsed.data.ANTHROPIC_TIMEOUT_MS,
-    maxValidationRetries: parsed.data.ANTHROPIC_MAX_VALIDATION_RETRIES,
+    timeoutMs: parsed.data.LLM_TIMEOUT_MS,
+    maxValidationRetries: parsed.data.LLM_MAX_VALIDATION_RETRIES,
   },
   rateLimit: {
     windowMs: parsed.data.RATE_LIMIT_WINDOW_MS,

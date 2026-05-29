@@ -1,5 +1,6 @@
 import type { ErrorRequestHandler, NextFunction, Request, Response } from 'express';
 import { ZodError } from 'zod';
+import { JsonParseError } from '../utils/json.js';
 import { logger } from '../utils/logger.js';
 
 export class HttpError extends Error {
@@ -31,6 +32,15 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
       code: 'VALIDATION_ERROR',
       message: 'Request payload failed validation',
       details: err.flatten(),
+    });
+    return;
+  }
+
+  if (err instanceof JsonParseError) {
+    logger.error({ path: req.path }, 'AI returned unparseable JSON');
+    res.status(422).json({
+      code: 'AI_INVALID_OUTPUT',
+      message: 'The model returned malformed JSON. Try again.',
     });
     return;
   }

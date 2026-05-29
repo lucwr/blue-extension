@@ -7,18 +7,21 @@ A production-grade Chrome Extension that detects job postings, extracts and anal
 ```
 resume_maker/
 ├── extension/   # Manifest V3 Chrome Extension (React + Vite + TS + Tailwind)
-└── backend/    # Express + TypeScript API that brokers all Claude (Anthropic) traffic
+└── backend/    # Express + TypeScript API that brokers all LLM traffic via OpenRouter
 ```
 
-The extension **never** holds Anthropic credentials. All AI traffic goes:
+The extension **never** holds LLM credentials. All AI traffic goes:
 
 ```
-Extension ──► Backend API ──► Anthropic (Claude)
+Extension ──► Backend API ──► OpenRouter ──► (Claude / GPT / Gemini / Llama / …)
 ```
 
-The backend uses Claude's native structured outputs (`messages.parse()` + `zodOutputFormat`),
-so JSON shape is enforced at the API layer against the Zod schemas in `backend/src/schemas/`.
-Prompt caching is enabled on the system prompt and the candidate's master profile.
+The backend uses the OpenAI SDK pointed at OpenRouter's OpenAI-compatible endpoint,
+so any model OpenRouter supports works by changing `LLM_MODEL*` env vars. Models are
+configured in OpenRouter's `<provider>/<model>` format — see
+[openrouter.ai/models](https://openrouter.ai/models). Default routing is to Claude
+3.5 Sonnet. Schema conformance is enforced via the schema spec in each prompt's
+system message + Zod validation with a corrective retry loop on the backend.
 
 ## Phase status
 
@@ -35,7 +38,7 @@ Prompt caching is enabled on the system prompt and the candidate's master profil
 
 - Node.js 18.18+
 - npm 9+
-- An Anthropic API key (https://console.anthropic.com)
+- An OpenRouter API key (https://openrouter.ai/keys)
 
 ## First-time setup
 
@@ -43,7 +46,7 @@ Prompt caching is enabled on the system prompt and the candidate's master profil
 npm install
 cp backend/.env.example backend/.env
 cp extension/.env.example extension/.env
-# Edit backend/.env and set ANTHROPIC_API_KEY and JWT_SECRET
+# Edit backend/.env and set OPENROUTER_API_KEY and JWT_SECRET
 ```
 
 ## Development
@@ -87,8 +90,8 @@ See [docs/architecture.md](docs/architecture.md) if present, or the source comme
 
 ## Security
 
-- `ANTHROPIC_API_KEY` lives only in `backend/.env` — never bundled into the extension
+- `OPENROUTER_API_KEY` lives only in `backend/.env` — never bundled into the extension
 - Extension authenticates to the backend via a short-lived JWT exchanged on install
-- All AI output is structurally enforced by Claude's `output_config.format` and additionally
-  Zod-validated (length bounds, refinements) before being returned to the extension
+- All AI output is JSON-schema-validated (Zod) before being returned to the extension,
+  with bounded retries that feed validation errors back to the model
 - Rate limiting per user/IP at the backend layer

@@ -7,7 +7,7 @@ import {
   type ResumeJson,
 } from '../schemas/resume.schema.js';
 import { applyAtsRules } from './ats.service.js';
-import { jsonCompletion } from './claude.service.js';
+import { jsonCompletion } from './llm.service.js';
 
 interface GenerateResumeArgs {
   jd: ExtractedJd;
@@ -19,13 +19,12 @@ interface GenerateResumeArgs {
 export async function generateResume(input: GenerateResumeArgs): Promise<ResumeJson> {
   const draft = await jsonCompletion({
     label: generateResumePrompt.version,
-    model: config.anthropic.models.resume,
+    model: config.llm.models.resume,
     prompt: generateResumePrompt.build(input),
     schema: ResumeJsonSchema,
-    // Resume gen is the highest-value generation; spend on it.
-    effort: 'high',
     // Resumes are long-form JSON — give headroom.
     maxTokens: 8192,
+    temperature: 0.4,
   });
 
   return applyAtsRules(draft, input.analysis, input.templateId);

@@ -1,19 +1,39 @@
 import type { ExtractedJd } from '../schemas/jd.schema.js';
 import type { PromptModule, PromptOutput } from './index.js';
 
-const SYSTEM = `You are a senior technical recruiter and ATS expert. You analyze a single job description and describe the role.
+const SYSTEM = `You are a senior technical recruiter and ATS expert.
+You analyze a single job description and produce a STRICT JSON object that describes the role.
 
-Guidelines:
-- Skills and keywords must be unique, lowercase-canonical (e.g. "typescript", "aws lambda", "ci/cd").
+Rules:
+- Output ONLY a single JSON object. No prose, no markdown, no code fences.
+- Use the exact keys defined in the schema below. Never invent new keys.
+- Arrays must contain unique, lowercase-canonical skill/keyword strings (e.g. "typescript", "aws lambda", "ci/cd").
 - If a field is unknown, return an empty array (or null for "domain").
-- The "summary" should be a 2-3 sentence neutral description for a candidate.
 - "seniority" must be one of: intern, junior, mid, senior, staff, principal, lead, unspecified.
+- "summary" is a 2-3 sentence neutral description for a candidate.
 - Do NOT include the company name as a skill or keyword.
-- Do NOT fabricate technologies that are not mentioned or strongly implied.`;
+- Do NOT fabricate technologies that are not mentioned or strongly implied.
 
-function buildUserText(jd: ExtractedJd): string {
+JSON schema:
+{
+  "targetTitle": string,
+  "seniority": "intern" | "junior" | "mid" | "senior" | "staff" | "principal" | "lead" | "unspecified",
+  "domain": string | null,
+  "requiredSkills": string[],
+  "preferredSkills": string[],
+  "frameworks": string[],
+  "cloud": string[],
+  "databases": string[],
+  "testing": string[],
+  "softSkills": string[],
+  "atsKeywords": string[],
+  "domainTerminology": string[],
+  "summary": string
+}`;
+
+function buildUser(jd: ExtractedJd): string {
   return [
-    'Analyze the following job posting.',
+    'Analyze the following job posting and return the JSON object as specified.',
     '',
     `Source: ${jd.source}`,
     `Title (raw): ${jd.title}`,
@@ -31,11 +51,9 @@ function buildUserText(jd: ExtractedJd): string {
 }
 
 export const analyzeJdPrompt: PromptModule<ExtractedJd> = {
-  version: 'analyze-jd@2026-05-28.v2',
-  // Analyze has no per-user stable preamble (no master profile in scope), so
-  // only the system prompt is cached. JD is per-request and rides uncached.
+  version: 'analyze-jd@2026-05-28.v3-openrouter',
   build: (jd): PromptOutput => ({
     system: SYSTEM,
-    userBlocks: [{ text: buildUserText(jd) }],
+    user: buildUser(jd),
   }),
 };
