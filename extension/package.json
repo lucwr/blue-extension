@@ -8,7 +8,8 @@
     "dev": "vite build --watch --mode development",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "make-icons": "node scripts/make-icons.mjs"
   },
   "dependencies": {
     "html2pdf.js": "^0.10.2",
