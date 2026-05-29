@@ -17,6 +17,8 @@
     "typecheck": "npm-run-all typecheck:*",
     "typecheck:extension": "npm --workspace extension run typecheck",
     "typecheck:backend": "npm --workspace backend run typecheck",
+    "make-icons": "npm --workspace extension run make-icons",
+    "test:pdf": "npm --workspace extension run test:pdf",
     "clean": "rimraf extension/dist backend/dist"
   },
   "devDependencies": {
