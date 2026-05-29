@@ -1,6 +1,7 @@
 /**
  * Raw job-description payload produced by a content-script extractor.
- * This is the un-analyzed shape — see `AnalyzedJobDescription` for the AI output.
+ * This is the canonical JD shape passed downstream to the backend for
+ * resume / proposal generation.
  */
 export interface ExtractedJobDescription {
   /** Site identifier that produced this extraction. */
@@ -31,31 +32,3 @@ export type JobSource =
   | 'remoteok'
   | 'wellfound'
   | 'generic';
-
-/** Result of `analyzeJobDescription` on the backend (shape mirrors the Zod schema). */
-export interface AnalyzedJobDescription {
-  targetTitle: string;
-  seniority: Seniority;
-  domain: string | null;
-  requiredSkills: string[];
-  preferredSkills: string[];
-  frameworks: string[];
-  cloud: string[];
-  databases: string[];
-  testing: string[];
-  softSkills: string[];
-  atsKeywords: string[];
-  domainTerminology: string[];
-  /** Short natural-language summary the popup can render. */
-  summary: string;
-}
-
-export type Seniority =
-  | 'intern'
-  | 'junior'
-  | 'mid'
-  | 'senior'
-  | 'staff'
-  | 'principal'
-  | 'lead'
-  | 'unspecified';

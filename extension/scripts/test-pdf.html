@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>PDF pipeline test (jsPDF text mode)</title>
+  </head>
+  <body>
+    <div id="status">running…</div>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+    <script>
+      // Reproduces the popup's downloadResumePdf() — jsPDF text-mode renderer.
+      // No html2canvas; output is real selectable text the way ATS readers expect.
+
+      const FONT = 'times';
+      const PAGE_W = 8.5;
+      const PAGE_H = 11;
+      const MARGIN_X = 0.85;
+      const MARGIN_TOP = 0.85;
+      const MARGIN_BOTTOM = 0.7;
+      const CONTENT_W = PAGE_W - 2 * MARGIN_X;
+      const LH_BODY = 0.18;
+      const LH_SMALL = 0.16;
+
+      const SAMPLE = {
+        contact: {
+          fullName: 'Marko Azirovic',
+          email: 'princestar81496@gmail.com',
+          location: 'Belgrade, Serbia',
+        },
+        targetTitle: 'Senior AI & Full-Stack Engineer',
+        summary:
+          'Senior Software Engineer with over 9 years of experience building and scaling production systems across web, backend, and AI-driven applications. Core expertise in AI/ML engineering with a strong focus on Natural Language Processing, semantic search, AI agents, and Retrieval-Augmented Generation (RAG) architectures.',
+        skills: {
+          languages: ['TypeScript', 'Python', 'JavaScript'],
+          frontend: ['React', 'Next.js', 'Tailwind'],
+          backend: ['Node.js', 'FastAPI', 'Express'],
+          cloud: ['AWS', 'GCP'],
+          databases: ['PostgreSQL', 'MongoDB', 'Redis'],
+          testing: [],
+          tools: ['Docker', 'GitLab CI'],
+        },
+        experience: [
+          {
+            company: 'Karibu.AI',
+            title: 'Senior AI Software Developer',
+            location: 'Remote, San Francisco Bay Area',
+            startDate: '04/2024',
+            endDate: '03/2026',
+            bullets: [
+              'Built an AI-powered employee onboarding platform combining advanced LLM workflows with full-stack architecture.',
+              'Developed a real-time RAG pipeline using LangChain and Pinecone with hybrid keyword/vector search across 50+ internal documents.',
+            ],
+          },
+        ],
+        projects: [],
+        education: [
+          {
+            institution: 'Educons University',
+            degree: "Bachelor's degree of Computer Science",
+            startDate: '10/2012',
+            endDate: '06/2016',
+          },
+        ],
+        certifications: [],
+        extras: [],
+      };
+
+      const SKILL_BUCKETS = [
+        ['languages', 'Languages'],
+        ['frontend', 'Frontend'],
+        ['backend', 'Backend'],
+        ['cloud', 'Cloud & DevOps'],
+        ['databases', 'Databases'],
+        ['testing', 'Testing'],
+        ['tools', 'Tools & Workflows'],
+      ];
+
+      function ensureSpace(pdf, c, needed) {
+        if (c.y + needed > PAGE_H - MARGIN_BOTTOM) {
+          pdf.addPage();
+          c.y = MARGIN_TOP;
+        }
+      }
+
+      function sectionHeading(pdf, c, text) {
+        ensureSpace(pdf, c, 0.45);
+        c.y += 0.12;
+        pdf.setFont(FONT, 'bold');
+        pdf.setFontSize(11);
+        pdf.text(text.toUpperCase(), MARGIN_X, c.y);
+        c.y += 0.04;
+        pdf.setLineWidth(0.012);
+        pdf.line(MARGIN_X, c.y, PAGE_W - MARGIN_X, c.y);
+        c.y += 0.12;
+      }
+
+      function renderResume(pdf, r) {
+        const c = { y: MARGIN_TOP };
+
+        // Header
+        pdf.setFont(FONT, 'bold');
+        pdf.setFontSize(22);
+        c.y += 0.22;
+        pdf.text(r.contact.fullName, PAGE_W / 2, c.y, { align: 'center' });
+        c.y += 0.25;
+
+        pdf.setFont(FONT, 'italic');
+        pdf.setFontSize(13);
+        pdf.text(r.targetTitle, PAGE_W / 2, c.y, { align: 'center' });
+        c.y += 0.22;
+
+        const bits = [r.contact.email, r.contact.location].filter(Boolean);
+        pdf.setFont(FONT, 'normal');
+        pdf.setFontSize(10);
+        pdf.text(bits.join('   |   '), PAGE_W / 2, c.y, { align: 'center' });
+        c.y += 0.04;
+
+        // Summary
+        sectionHeading(pdf, c, 'Summary');
+        pdf.setFont(FONT, 'normal');
+        pdf.setFontSize(10);
+        const sumLines = pdf.splitTextToSize(r.summary, CONTENT_W);
+        for (const line of sumLines) {
+          ensureSpace(pdf, c, LH_BODY);
+          pdf.text(line, MARGIN_X, c.y);
+          c.y += LH_BODY;
+        }
+
+        // Experience
+        sectionHeading(pdf, c, 'Work Experience');
+        for (const role of r.experience) {
+          ensureSpace(pdf, c, 0.45);
+          pdf.setFont(FONT, 'bold');
+          pdf.setFontSize(10.5);
+          pdf.text(role.company, MARGIN_X, c.y);
+          const cw = pdf.getTextWidth(role.company);
+          pdf.setFont(FONT, 'italic');
+          pdf.setFontSize(10.5);
+          pdf.text(', ' + role.title, MARGIN_X + cw, c.y);
+          pdf.setFont(FONT, 'normal');
+          pdf.setFontSize(10);
+          pdf.text(role.startDate + ' – ' + role.endDate, PAGE_W - MARGIN_X, c.y, { align: 'right' });
+          c.y += LH_BODY + 0.01;
+          if (role.location) {
+            pdf.setFont(FONT, 'italic');
+            pdf.setFontSize(9.5);
+            pdf.text(role.location, PAGE_W - MARGIN_X, c.y, { align: 'right' });
+            c.y += LH_SMALL;
+          }
+          pdf.setFont(FONT, 'normal');
+          pdf.setFontSize(10);
+          for (const bullet of role.bullets) {
+            const lines = pdf.splitTextToSize(bullet, CONTENT_W - 0.15);
+            for (let i = 0; i < lines.length; i++) {
+              ensureSpace(pdf, c, LH_BODY);
+              const text = i === 0 ? '• ' + lines[i] : '  ' + lines[i];
+              pdf.text(text, MARGIN_X + 0.08, c.y);
+              c.y += LH_BODY;
+            }
+          }
+          c.y += 0.06;
+        }
+
+        // Education
+        sectionHeading(pdf, c, 'Education');
+        for (const e of r.education) {
+          pdf.setFont(FONT, 'bold');
+          pdf.setFontSize(10.5);
+          pdf.text(e.institution, MARGIN_X, c.y);
+          const iw = pdf.getTextWidth(e.institution);
+          pdf.setFont(FONT, 'italic');
+          pdf.setFontSize(10.5);
+          pdf.text(', ' + e.degree, MARGIN_X + iw, c.y);
+          pdf.setFont(FONT, 'normal');
+          pdf.setFontSize(10);
+          const dt = (e.startDate || '') + ((e.startDate && e.endDate) ? ' – ' : '') + (e.endDate || '');
+          if (dt) pdf.text(dt, PAGE_W - MARGIN_X, c.y, { align: 'right' });
+          c.y += LH_BODY + 0.02;
+        }
+
+        // Skills
+        sectionHeading(pdf, c, 'Skills');
+        for (const [k, label] of SKILL_BUCKETS) {
+          const items = r.skills[k];
+          if (!items || items.length === 0) continue;
+          pdf.setFont(FONT, 'bold');
+          pdf.setFontSize(10);
+          pdf.text(label, MARGIN_X, c.y);
+          const lw = pdf.getTextWidth(label);
+          pdf.setFont(FONT, 'normal');
+          pdf.setFontSize(10);
+          const tail = ' (' + items.join(', ') + ')';
+          const lines = pdf.splitTextToSize(tail, CONTENT_W - lw);
+          for (let i = 0; i < lines.length; i++) {
+            if (i === 0) {
+              pdf.text(lines[i], MARGIN_X + lw, c.y);
+            } else {
+              ensureSpace(pdf, c, LH_BODY);
+              c.y += LH_BODY;
+              pdf.text(lines[i], MARGIN_X, c.y);
+            }
+          }
+          c.y += LH_BODY + 0.01;
+        }
+      }
+
+      (async () => {
+        const status = document.getElementById('status');
+        try {
+          const { jsPDF } = window.jspdf;
+          const pdf = new jsPDF({ unit: 'in', format: 'letter', orientation: 'portrait' });
+          renderResume(pdf, SAMPLE);
+
+          const blob = pdf.output('blob');
+          const reader = new FileReader();
+          const base64 = await new Promise((res, rej) => {
+            reader.onload = () => res(reader.result.split(',')[1]);
+            reader.onerror = () => rej(reader.error);
+            reader.readAsDataURL(blob);
+          });
+
+          window.__testResult = {
+            ok: true,
+            pages: pdf.getNumberOfPages(),
+            pdfBase64Length: base64.length,
+            pdfBase64: base64,
+          };
+          status.textContent = `OK — ${pdf.getNumberOfPages()} page(s), ${base64.length} base64 chars`;
+        } catch (err) {
+          status.textContent = 'ERROR: ' + err.message;
+          window.__testResult = { ok: false, reason: 'threw', message: err.message };
+        }
+      })();
+    </script>
+  </body>
+</html>

@@ -35,7 +35,7 @@ export const ResumePanel: FC<Props> = ({ resume, canGenerate, onGenerate, onDown
 
     {!canGenerate && !resume && (
       <p className="rounded-lg border border-dashed border-slate-300 bg-white p-3 text-xs text-slate-500">
-        Analyze the JD first — the resume is tailored to the AI's extracted skills and keywords.
+        Extract a job posting first — the AI tailors your resume directly from the full JD.
       </p>
     )}
 

@@ -10,13 +10,12 @@ import { usePopupStore } from '../store';
  *   3. Push the result into the popup store.
  */
 export function useExtraction(): () => Promise<void> {
-  const { setStep, setJd, setError, setAnalysis, setResume, setProposal } = usePopupStore();
+  const { setStep, setJd, setError, setResume, setProposal } = usePopupStore();
 
   return useCallback(async () => {
     setStep('extracting');
     setError(null);
     setJd(null);
-    setAnalysis(null);
     setResume(null);
     setProposal(null);
 
@@ -50,5 +49,5 @@ export function useExtraction(): () => Promise<void> {
     } finally {
       setStep('idle');
     }
-  }, [setStep, setJd, setError, setAnalysis, setResume, setProposal]);
+  }, [setStep, setJd, setError, setResume, setProposal]);
 }

@@ -9,10 +9,11 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "make-icons": "node scripts/make-icons.mjs"
+    "make-icons": "node scripts/make-icons.mjs",
+    "test:pdf": "node scripts/run-pdf-test.mjs"
   },
   "dependencies": {
-    "html2pdf.js": "^0.10.2",
+    "jspdf": "^2.5.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zod": "^3.23.8",

@@ -3,7 +3,7 @@
  * `keys.ts` and bound to a concrete TS type below — callers get full
  * autocomplete and refactor-safety.
  */
-import type { AnalyzedJobDescription, ExtractedJobDescription } from '@/types/jd';
+import type { ExtractedJobDescription } from '@/types/jd';
 import type { ProposalJson } from '@/types/proposal';
 import type { MasterProfile, ResumeJson } from '@/types/resume';
 import { StorageKeys, type StorageKey } from './keys';
@@ -24,7 +24,6 @@ export interface HistoryEntry {
   jobTitle: string;
   company: string | null;
   jd: ExtractedJobDescription;
-  analysis: AnalyzedJobDescription | null;
   resume: ResumeJson | null;
   proposal: ProposalJson | null;
 }

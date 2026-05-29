@@ -21,7 +21,6 @@ export interface PromptModule<TInput> {
   build: (input: TInput) => PromptOutput;
 }
 
-export { analyzeJdPrompt } from './analyzeJd.prompt.js';
 export { generateResumePrompt } from './generateResume.prompt.js';
 export { generateProposalPrompt } from './generateProposal.prompt.js';
 export { parseResumePrompt } from './parseResume.prompt.js';

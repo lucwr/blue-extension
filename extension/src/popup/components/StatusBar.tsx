@@ -5,7 +5,6 @@ import type { AppError } from '@/types/messages';
 const LABELS: Record<FlowStep, string> = {
   idle: 'Ready',
   extracting: 'Extracting job description…',
-  analyzing: 'Analyzing JD with AI…',
   'generating-resume': 'Generating ATS-optimized resume…',
   'generating-proposal': 'Generating tailored proposal…',
 };

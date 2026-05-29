@@ -5,7 +5,6 @@
  */
 import { getMasterProfile, getSettings, pushHistory } from '@/storage';
 import type {
-  AnalyzeJdMessage,
   AppError,
   AppMessage,
   GenerateProposalMessage,
@@ -56,10 +55,12 @@ async function handleHealthcheck(
   }
 }
 
-async function handleAnalyze(msg: AnalyzeJdMessage): Promise<MessageResult<'BG_ANALYZE_JD'>> {
+async function handleImportResumePdf(
+  msg: ImportResumePdfMessage,
+): Promise<MessageResult<'BG_IMPORT_RESUME_PDF'>> {
   try {
-    const analysis = await api.analyzeJd(msg.payload.jd);
-    return { ok: true, data: analysis };
+    const profile = await api.importResumePdf(msg.payload.pdfBase64);
+    return { ok: true, data: profile };
   } catch (err) {
     return { ok: false, error: toAppError(err) };
   }
@@ -70,7 +71,6 @@ async function handleResume(msg: GenerateResumeMessage): Promise<MessageResult<'
   if (!profileGuard.ok) return { ok: false, error: profileGuard.error };
   try {
     const resume = await api.generateResume({
-      analysis: msg.payload.analysis,
       jd: msg.payload.jd,
       masterProfile: profileGuard.profile,
       templateId: msg.payload.templateId,
@@ -83,22 +83,10 @@ async function handleResume(msg: GenerateResumeMessage): Promise<MessageResult<'
       jobTitle: msg.payload.jd.title,
       company: msg.payload.jd.company,
       jd: msg.payload.jd,
-      analysis: msg.payload.analysis,
       resume,
       proposal: null,
     });
     return { ok: true, data: resume };
-  } catch (err) {
-    return { ok: false, error: toAppError(err) };
-  }
-}
-
-async function handleImportResumePdf(
-  msg: ImportResumePdfMessage,
-): Promise<MessageResult<'BG_IMPORT_RESUME_PDF'>> {
-  try {
-    const profile = await api.importResumePdf(msg.payload.pdfBase64);
-    return { ok: true, data: profile };
   } catch (err) {
     return { ok: false, error: toAppError(err) };
   }
@@ -111,7 +99,6 @@ async function handleProposal(
   if (!profileGuard.ok) return { ok: false, error: profileGuard.error };
   try {
     const proposal = await api.generateProposal({
-      analysis: msg.payload.analysis,
       jd: msg.payload.jd,
       masterProfile: profileGuard.profile,
       tone: msg.payload.tone,
@@ -130,8 +117,6 @@ export async function dispatch(message: AppMessage): Promise<MessageResult<AppMe
   switch (message.type) {
     case 'BG_HEALTHCHECK':
       return handleHealthcheck(message);
-    case 'BG_ANALYZE_JD':
-      return handleAnalyze(message);
     case 'BG_GENERATE_RESUME':
       return handleResume(message);
     case 'BG_GENERATE_PROPOSAL':

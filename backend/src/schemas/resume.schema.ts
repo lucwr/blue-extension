@@ -28,7 +28,10 @@ export const ResumeExperienceSchema = z.object({
   location: z.string().max(120).optional(),
   startDate: z.string().min(1).max(20),
   endDate: z.string().min(1).max(20),
-  bullets: z.array(z.string().min(8).max(400)).min(1).max(10),
+  // Bumped from 10 to 12 — the user's prompt allows 5-8 bullets per recent
+  // role plus 3-5 for older roles, and the model occasionally produces 11-12
+  // for very senior roles when the JD lists many distinct asks.
+  bullets: z.array(z.string().min(8).max(400)).min(1).max(12),
 });
 
 export const ResumeProjectSchema = z.object({
@@ -36,7 +39,8 @@ export const ResumeProjectSchema = z.object({
   link: z.string().max(300).optional(),
   description: z.string().min(1).max(500),
   technologies: z.array(z.string().min(1).max(60)).max(20),
-  bullets: z.array(z.string().min(8).max(400)).max(6),
+  // Bumped 6 → 10 for the same reason as experience bullets above.
+  bullets: z.array(z.string().min(8).max(400)).max(10),
 });
 
 export const ResumeEducationSchema = z.object({
@@ -57,7 +61,12 @@ export const ResumeCertificationSchema = z.object({
 
 export const ResumeExtraSchema = z.object({
   heading: z.string().min(1).max(80),
-  items: z.array(z.string().min(1).max(300)).max(12),
+  // Bumped 12 → 30. After we added the ATS umbrella-phrase preservation
+  // rule, the model produces larger AI/ML / Security / Soft Skills / Tools
+  // buckets in `extras` (each can legitimately hold 15-25 phrases). The
+  // tight 12-cap was the cause of "Output failed schema validation:
+  // extras.0.items: Array must contain at most 12 element(s)".
+  items: z.array(z.string().min(1).max(300)).max(30),
 });
 
 export const ResumeMetaSchema = z.object({

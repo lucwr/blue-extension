@@ -1,13 +1,12 @@
 import type { RequestHandler } from 'express';
 import { z } from 'zod';
-import { AnalyzedJdSchema, ExtractedJdSchema } from '../schemas/jd.schema.js';
+import { ExtractedJdSchema } from '../schemas/jd.schema.js';
 import { ProposalToneSchema } from '../schemas/proposal.schema.js';
 import { MasterProfileSchema } from '../schemas/resume.schema.js';
 import { generateProposal } from '../services/proposal.service.js';
 
 export const ProposalRequestSchema = z.object({
   jd: ExtractedJdSchema,
-  analysis: AnalyzedJdSchema,
   masterProfile: MasterProfileSchema,
   tone: ProposalToneSchema,
 });

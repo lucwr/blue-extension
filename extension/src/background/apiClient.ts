@@ -8,7 +8,7 @@
  *  - Errors are mapped into the extension's `AppError` shape, never raw HTTP.
  */
 import { getAuthToken, getSettings } from '@/storage';
-import type { AnalyzedJobDescription, ExtractedJobDescription } from '@/types/jd';
+import type { ExtractedJobDescription } from '@/types/jd';
 import type { AppError, AppErrorCode } from '@/types/messages';
 import type { ProposalJson, ProposalTone } from '@/types/proposal';
 import type { ResumeJson, MasterProfile } from '@/types/resume';
@@ -109,16 +109,7 @@ export const api = {
     return request<{ ok: true; version: string }>('/api/health', { method: 'GET', timeoutMs: 5_000 });
   },
 
-  async analyzeJd(jd: ExtractedJobDescription): Promise<AnalyzedJobDescription> {
-    const result = await request<{ analysis: AnalyzedJobDescription }>('/api/analyze', {
-      method: 'POST',
-      body: { jd },
-    });
-    return result.analysis;
-  },
-
   async generateResume(input: {
-    analysis: AnalyzedJobDescription;
     jd: ExtractedJobDescription;
     masterProfile: MasterProfile;
     templateId: string;
@@ -126,12 +117,14 @@ export const api = {
     const result = await request<{ resume: ResumeJson }>('/api/resume', {
       method: 'POST',
       body: input,
+      // Resume gen on Claude Sonnet emits ~3-4K output tokens at ~50-80 tok/s,
+      // so 60s is too tight. 3 min covers worst-case + a retry attempt.
+      timeoutMs: 180_000,
     });
     return result.resume;
   },
 
   async generateProposal(input: {
-    analysis: AnalyzedJobDescription;
     jd: ExtractedJobDescription;
     masterProfile: MasterProfile;
     tone: ProposalTone;
@@ -139,6 +132,7 @@ export const api = {
     const result = await request<{ proposal: ProposalJson }>('/api/proposal', {
       method: 'POST',
       body: input,
+      timeoutMs: 120_000,
     });
     return result.proposal;
   },

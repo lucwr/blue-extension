@@ -1,6 +1,6 @@
 import { config } from '../config.js';
 import { generateResumePrompt } from '../prompts/index.js';
-import type { AnalyzedJd, ExtractedJd } from '../schemas/jd.schema.js';
+import type { ExtractedJd } from '../schemas/jd.schema.js';
 import {
   ResumeJsonSchema,
   type MasterProfile,
@@ -11,7 +11,6 @@ import { jsonCompletion } from './llm.service.js';
 
 interface GenerateResumeArgs {
   jd: ExtractedJd;
-  analysis: AnalyzedJd;
   masterProfile: MasterProfile;
   templateId: string;
 }
@@ -22,10 +21,12 @@ export async function generateResume(input: GenerateResumeArgs): Promise<ResumeJ
     model: config.llm.models.resume,
     prompt: generateResumePrompt.build(input),
     schema: ResumeJsonSchema,
-    // Resumes are long-form JSON — give headroom.
-    maxTokens: 8192,
+    // Senior resumes typically land in 3-4K output tokens — 6K is safe headroom
+    // without inviting the model to over-produce. (Lower is the main lever for
+    // wall-clock latency since output generation is the bottleneck.)
+    maxTokens: 6144,
     temperature: 0.4,
   });
 
-  return applyAtsRules(draft, input.analysis, input.templateId);
+  return applyAtsRules(draft, input.templateId);
 }

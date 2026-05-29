@@ -1,14 +1,16 @@
 /**
- * Lightweight, deterministic ATS post-processor for AI-generated resumes.
+ * Deterministic post-processor for AI-generated resumes.
  *
- * The AI does the heavy keyword work; this layer enforces hard rules the
- * model occasionally violates:
- *   1. Deduplicate skill entries (case-insensitive).
- *   2. Sort each skill array so JD-required skills appear first.
- *   3. Stamp `meta.schemaVersion` and `meta.generatedAt` regardless of what
- *      the model emitted (defense in depth — Zod allows the field to drift).
+ * Previously this layer also reordered skill buckets by JD priority, but
+ * the analysis pre-pass that drove that has been removed — the resume prompt
+ * now tells the model to prioritize JD-required skills first inside each
+ * bucket itself. What remains here is the parts the model can't reliably do:
+ *
+ *   1. Deduplicate skill entries (case-insensitive) — defends against
+ *      "TypeScript" + "typescript" appearing in the same bucket.
+ *   2. Stamp `meta.schemaVersion`, `meta.templateId`, and `meta.generatedAt`
+ *      so they're always correct regardless of what the model emitted.
  */
-import type { AnalyzedJd } from '../schemas/jd.schema.js';
 import { RESUME_SCHEMA_VERSION, type ResumeJson, type ResumeSkills } from '../schemas/resume.schema.js';
 
 function dedupePreservingOrder(values: readonly string[]): string[] {
@@ -23,41 +25,19 @@ function dedupePreservingOrder(values: readonly string[]): string[] {
   return out;
 }
 
-function reorderByPriority(skills: readonly string[], priority: readonly string[]): string[] {
-  const prioritySet = new Set(priority.map((p) => p.toLowerCase()));
-  const priorityHits: string[] = [];
-  const rest: string[] = [];
-  for (const skill of skills) {
-    if (prioritySet.has(skill.toLowerCase())) priorityHits.push(skill);
-    else rest.push(skill);
-  }
-  return [...priorityHits, ...rest];
-}
-
-function postProcessSkills(skills: ResumeSkills, priority: readonly string[]): ResumeSkills {
-  const bucket = (arr: readonly string[]): string[] =>
-    reorderByPriority(dedupePreservingOrder(arr), priority);
+function dedupeSkills(skills: ResumeSkills): ResumeSkills {
   return {
-    languages: bucket(skills.languages),
-    frontend: bucket(skills.frontend),
-    backend: bucket(skills.backend),
-    cloud: bucket(skills.cloud),
-    databases: bucket(skills.databases),
-    testing: bucket(skills.testing),
-    tools: bucket(skills.tools),
+    languages: dedupePreservingOrder(skills.languages),
+    frontend: dedupePreservingOrder(skills.frontend),
+    backend: dedupePreservingOrder(skills.backend),
+    cloud: dedupePreservingOrder(skills.cloud),
+    databases: dedupePreservingOrder(skills.databases),
+    testing: dedupePreservingOrder(skills.testing),
+    tools: dedupePreservingOrder(skills.tools),
   };
 }
 
-export function applyAtsRules(resume: ResumeJson, analysis: AnalyzedJd, templateId: string): ResumeJson {
-  const priority = [
-    ...analysis.requiredSkills,
-    ...analysis.preferredSkills,
-    ...analysis.frameworks,
-    ...analysis.cloud,
-    ...analysis.databases,
-    ...analysis.testing,
-  ];
-
+export function applyAtsRules(resume: ResumeJson, templateId: string): ResumeJson {
   return {
     ...resume,
     meta: {
@@ -66,6 +46,6 @@ export function applyAtsRules(resume: ResumeJson, analysis: AnalyzedJd, template
       templateId,
       generatedAt: new Date().toISOString(),
     },
-    skills: postProcessSkills(resume.skills, priority),
+    skills: dedupeSkills(resume.skills),
   };
 }

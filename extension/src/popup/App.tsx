@@ -6,7 +6,6 @@ import { ResumePanel } from './components/ResumePanel';
 import { StatusBar } from './components/StatusBar';
 import { useExtraction } from './hooks/useExtraction';
 import {
-  useAnalyze,
   useGenerateProposal,
   useGenerateResume,
 } from './hooks/useGeneration';
@@ -36,9 +35,8 @@ const TabButton: FC<{
 
 export const App: FC = () => {
   const [view, setView] = useState<View>('job');
-  const { step, jd, analysis, resume, proposal, error } = usePopupStore();
+  const { step, jd, resume, proposal, error } = usePopupStore();
   const extract = useExtraction();
-  const analyze = useAnalyze();
   const generateResume = useGenerateResume();
   const generateProposal = useGenerateProposal();
 
@@ -104,21 +102,19 @@ export const App: FC = () => {
           <>
             <JobPanel
               jd={jd}
-              analysis={analysis}
               onExtract={() => void extract()}
-              onAnalyze={() => void analyze()}
               disabled={busy}
             />
             <ResumePanel
               resume={resume}
-              canGenerate={Boolean(analysis)}
+              canGenerate={Boolean(jd)}
               onGenerate={() => void generateResume()}
               onDownloadPdf={() => void onDownloadPdf()}
               disabled={busy}
             />
             <ProposalPanel
               proposal={proposal}
-              canGenerate={Boolean(analysis)}
+              canGenerate={Boolean(jd)}
               disabled={busy}
               onGenerate={onGenerateProposal}
               onCopy={() => void onCopyProposal()}

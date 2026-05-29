@@ -1,11 +1,13 @@
-import type { AnalyzedJd, ExtractedJd } from '../schemas/jd.schema.js';
+import type { ExtractedJd } from '../schemas/jd.schema.js';
 import type { ProposalTone } from '../schemas/proposal.schema.js';
 import type { MasterProfile } from '../schemas/resume.schema.js';
 import type { PromptModule, PromptOutput } from './index.js';
 
 const SYSTEM = `You are an expert freelance proposal writer.
 
-You will receive a job description, its analysis, the candidate's master profile, and a target tone.
+You will receive a job description, the candidate's master profile, and a target tone.
+
+Silently analyze the JD before writing — extract the target role, the client's #1 stated need, the primary technology stack, required skills, domain language, and any soft-skill phrases. Then write the proposal. Do NOT show the analysis in the output.
 
 Write a tailored proposal that:
   - Opens with a hook tied to the client's #1 stated need.
@@ -36,7 +38,6 @@ Schema:
 
 export interface ProposalPromptInput {
   jd: ExtractedJd;
-  analysis: AnalyzedJd;
   masterProfile: MasterProfile;
   tone: ProposalTone;
 }
@@ -45,17 +46,12 @@ function buildUser(input: ProposalPromptInput): string {
   return [
     `Tone: ${input.tone}`,
     '',
-    'JD ANALYSIS:',
-    '```json',
-    JSON.stringify(input.analysis, null, 2),
-    '```',
-    '',
     'CANDIDATE MASTER PROFILE (source of truth):',
     '```json',
     JSON.stringify(input.masterProfile, null, 2),
     '```',
     '',
-    'JOB DESCRIPTION:',
+    'JOB DESCRIPTION (analyze internally, then write the proposal):',
     '---',
     input.jd.description,
     '---',
@@ -63,7 +59,7 @@ function buildUser(input: ProposalPromptInput): string {
 }
 
 export const generateProposalPrompt: PromptModule<ProposalPromptInput> = {
-  version: 'generate-proposal@2026-05-28.v3-openrouter',
+  version: 'generate-proposal@2026-05-29.v4-no-preanalyze',
   build: (input): PromptOutput => ({
     system: SYSTEM,
     user: buildUser(input),

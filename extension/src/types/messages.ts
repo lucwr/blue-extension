@@ -4,13 +4,12 @@
  * Every message is a discriminated union keyed on `type`. The bus helpers in
  * `services/messaging.ts` enforce request/response pairing at compile time.
  */
-import type { ExtractedJobDescription, AnalyzedJobDescription } from './jd';
+import type { ExtractedJobDescription } from './jd';
 import type { ProposalJson, ProposalTone } from './proposal';
 import type { MasterProfile, ResumeJson } from './resume';
 
 export type MessageType =
   | 'CS_EXTRACT_JD'
-  | 'BG_ANALYZE_JD'
   | 'BG_GENERATE_RESUME'
   | 'BG_GENERATE_PROPOSAL'
   | 'BG_IMPORT_RESUME_PDF'
@@ -24,11 +23,9 @@ interface BaseMessage<T extends MessageType, P> {
 }
 
 export type ExtractJdMessage = BaseMessage<'CS_EXTRACT_JD', { url: string }>;
-export type AnalyzeJdMessage = BaseMessage<'BG_ANALYZE_JD', { jd: ExtractedJobDescription }>;
 export type GenerateResumeMessage = BaseMessage<
   'BG_GENERATE_RESUME',
   {
-    analysis: AnalyzedJobDescription;
     jd: ExtractedJobDescription;
     templateId: string;
   }
@@ -36,7 +33,6 @@ export type GenerateResumeMessage = BaseMessage<
 export type GenerateProposalMessage = BaseMessage<
   'BG_GENERATE_PROPOSAL',
   {
-    analysis: AnalyzedJobDescription;
     jd: ExtractedJobDescription;
     tone: ProposalTone;
   }
@@ -49,7 +45,6 @@ export type ImportResumePdfMessage = BaseMessage<
 
 export type AppMessage =
   | ExtractJdMessage
-  | AnalyzeJdMessage
   | GenerateResumeMessage
   | GenerateProposalMessage
   | ImportResumePdfMessage
@@ -57,7 +52,6 @@ export type AppMessage =
 
 export interface MessageResponseMap {
   CS_EXTRACT_JD: ExtractedJobDescription;
-  BG_ANALYZE_JD: AnalyzedJobDescription;
   BG_GENERATE_RESUME: ResumeJson;
   BG_GENERATE_PROPOSAL: ProposalJson;
   BG_IMPORT_RESUME_PDF: MasterProfile;

@@ -42,9 +42,23 @@ function readJsonLd(doc: Document): JsonLdJobPosting | null {
 }
 
 function descriptionToText(html: string): string {
+  // First pass: parse as HTML and extract textContent. Handles real HTML.
   const tmp = document.createElement('div');
   tmp.innerHTML = html;
-  return tmp.textContent ?? '';
+  let text = tmp.textContent ?? '';
+
+  // Second pass: some sites (e.g., join.com) entity-encode their JSON-LD
+  // description, so after pass 1 the text still contains literal "<p>" /
+  // "</strong>" sequences. Re-set as innerHTML and re-extract to peel that
+  // second layer.
+  if (text.includes('<') && text.includes('>')) {
+    tmp.innerHTML = text;
+    text = tmp.textContent ?? '';
+  }
+
+  // Final defensive strip — kills any malformed tag remnants the DOM parser
+  // couldn't resolve (e.g. unclosed tags inside attribute strings).
+  return text.replace(/<\/?[a-z][^>]*>/gi, ' ');
 }
 
 function densestBlock(doc: Document): Element | null {
