@@ -143,6 +143,11 @@ export interface ResumeTemplate {
     dateRange: string;
     /** Between education startDate and endDate. */
     educationDateRange: string;
+    /**
+     * Between the date range and the location on the right-aligned side of
+     * the role-header line ("04/2024 – 03/2026 | Remote, San Francisco").
+     */
+    dateLocationJoin: string;
     /** First-line bullet prefix. */
     bulletPrefix: string;
     /** Continuation indent for wrapped bullet lines (must match prefix width). */
@@ -167,6 +172,13 @@ export interface ResumeTemplate {
      * skill rows from being split across two pages.
      */
     keepSkillsOnOnePage: boolean;
+    /**
+     * When true, multi-line body text (summary, experience bullets, project
+     * descriptions, certifications) is rendered with full justification —
+     * inter-word spacing stretches every non-final line to fill the content
+     * width. The last line of each paragraph stays left-aligned.
+     */
+    justifyBodyText: boolean;
   };
 }
 
@@ -185,7 +197,7 @@ export const ATS_TEMPLATE: ResumeTemplate = {
 
   styles: {
     // Header pieces stay where they were — only the body content scales up.
-    name: { family: 'times', size: 26, weight: 'bold' },
+    name: { family: 'times', size: 24, weight: 'bold' },
     targetTitle: { family: 'times', size: 16, weight: 'italic' },
     contact: { family: 'times', size: 12, weight: 'normal' },
     // Section headings stay one size above body so the hierarchy still reads.
@@ -196,13 +208,16 @@ export const ATS_TEMPLATE: ResumeTemplate = {
     role: { family: 'times', size: 13, weight: 'italic' },
     date: { family: 'times', size: 11, weight: 'normal' },
     location: { family: 'times', size: 11, weight: 'italic' },
-    bullet: { family: 'times', size: 13, weight: 'normal' },
+    // Bullet content reads at the same size as the summary body (matches the
+    // user's preferred density — bullets sized one step down from inline role
+    // text so the company/role line still anchors the block visually).
+    bullet: { family: 'times', size: 11, weight: 'normal' },
     institution: { family: 'times', size: 13, weight: 'bold' },
     degree: { family: 'times', size: 13, weight: 'italic' },
     projectName: { family: 'times', size: 12, weight: 'bold' },
     projectLink: { family: 'times', size: 10, weight: 'italic' },
     projectStack: { family: 'times', size: 10, weight: 'italic' },
-    skillLabel: { family: 'times', size: 12, weight: 'bold' },
+    skillLabel: { family: 'times', size: 11.5, weight: 'bold' },
     skillItems: { family: 'times', size: 11, weight: 'normal' },
   },
 
@@ -240,6 +255,7 @@ export const ATS_TEMPLATE: ResumeTemplate = {
     institutionDegreeJoin: ', ',
     dateRange: ' – ', // U+2013 en dash
     educationDateRange: ' – ',
+    dateLocationJoin: ' | ',
     bulletPrefix: '- ',
     bulletContinuation: '  ',
   },
@@ -252,5 +268,6 @@ export const ATS_TEMPLATE: ResumeTemplate = {
   rules: {
     sectionHeadingUppercase: true,
     keepSkillsOnOnePage: true,
+    justifyBodyText: true,
   },
 };

@@ -75,7 +75,19 @@ function contentWidth(t: ResumeTemplate): number {
   return t.page.width - 2 * t.page.marginX;
 }
 
-/** Wrap `text` to `width`, advance the cursor by `lineHeight` per line. */
+/**
+ * Wrap `text` to `width`, advance the cursor by `lineHeight` per line.
+ *
+ * When `template.rules.justifyBodyText` is true, every non-final wrapped
+ * line is rendered with `align: 'justify'` + `maxWidth`, stretching inter-
+ * word spacing so the line reaches the right edge. The final line of each
+ * paragraph stays left-aligned (standard typographic behavior).
+ *
+ * IMPORTANT: the wrapped lines from `splitTextToSize(text, maxWidth)`
+ * already fit inside maxWidth, so passing `align: 'justify'` + the same
+ * `maxWidth` does NOT cause jsPDF to internally re-wrap. (The bullet path
+ * has to be more careful — see `renderBulletList`.)
+ */
 function writeWrapped(
   pdf: jsPDF,
   t: ResumeTemplate,
@@ -86,9 +98,15 @@ function writeWrapped(
   lineHeight: number,
 ): void {
   const lines = pdf.splitTextToSize(text, maxWidth) as string[];
-  for (const line of lines) {
+  const justify = t.rules.justifyBodyText;
+  for (let i = 0; i < lines.length; i++) {
     ensureSpace(pdf, t, c, lineHeight);
-    pdf.text(line, startX, c.y);
+    const isLast = i === lines.length - 1;
+    if (justify && !isLast) {
+      pdf.text(lines[i] ?? '', startX, c.y, { align: 'justify', maxWidth });
+    } else {
+      pdf.text(lines[i] ?? '', startX, c.y);
+    }
     c.y += lineHeight;
   }
 }
@@ -153,13 +171,41 @@ function renderBulletList(
 ): void {
   applyStyle(pdf, t.styles.bullet);
   const startX = t.page.marginX + t.indents.bullet;
-  const maxWidth = contentWidth(t) - t.indents.bulletInsetRight;
+  const totalMaxWidth = contentWidth(t) - t.indents.bulletInsetRight;
+  const justify = t.rules.justifyBodyText;
+
+  // Measure the bullet prefix and reserve that much width on the left of
+  // every line. The continuation indent is sized to match the prefix so
+  // wrapped lines align under the first character of the first-line content.
+  //
+  // CRITICAL: pre-wrap the CONTENT (without prefix) to `contentMaxWidth`, then
+  // render the prefix as a separate text call. If we instead rendered
+  // "${prefix}${line}" in one call with `align: 'justify'` + maxWidth, jsPDF
+  // sees the prefixed text overflow maxWidth, internally re-wraps it, and
+  // emits multiple lines at successive y positions — but our cursor only
+  // advances by ONE bodyLineHeight per outer-loop iteration, causing the
+  // next bullet to render on top of the previous bullet's continuation line.
+  const prefixWidth = pdf.getTextWidth(t.separators.bulletPrefix);
+  const contentStartX = startX + prefixWidth;
+  const contentMaxWidth = totalMaxWidth - prefixWidth;
+
   for (const bullet of bullets) {
-    const lines = pdf.splitTextToSize(bullet, maxWidth) as string[];
+    const lines = pdf.splitTextToSize(bullet, contentMaxWidth) as string[];
     for (let i = 0; i < lines.length; i++) {
       ensureSpace(pdf, t, c, t.spacing.bodyLineHeight);
       const prefix = i === 0 ? t.separators.bulletPrefix : t.separators.bulletContinuation;
-      pdf.text(`${prefix}${lines[i] ?? ''}`, startX, c.y);
+      pdf.text(prefix, startX, c.y);
+
+      const lineContent = lines[i] ?? '';
+      const isLast = i === lines.length - 1;
+      if (justify && !isLast) {
+        pdf.text(lineContent, contentStartX, c.y, {
+          align: 'justify',
+          maxWidth: contentMaxWidth,
+        });
+      } else {
+        pdf.text(lineContent, contentStartX, c.y);
+      }
       c.y += t.spacing.bodyLineHeight;
     }
   }
@@ -177,7 +223,8 @@ function renderExperience(
   for (const role of experience) {
     ensureSpace(pdf, t, c, t.spacing.beforeSectionGuard);
 
-    // Role header line: bold company + italic role on the left, date on the right.
+    // Role header — all on ONE line:
+    //   [bold company][, italic role]                          [date | location]
     applyStyle(pdf, t.styles.company);
     pdf.text(role.company, t.page.marginX, c.y);
     const companyW = pdf.getTextWidth(role.company);
@@ -186,22 +233,12 @@ function renderExperience(
     pdf.text(`${t.separators.companyRoleJoin}${role.title}`, t.page.marginX + companyW, c.y);
 
     applyStyle(pdf, t.styles.date);
-    pdf.text(
-      `${role.startDate}${t.separators.dateRange}${role.endDate}`,
-      t.page.width - t.page.marginX,
-      c.y,
-      { align: 'right' },
-    );
+    const dateText = `${role.startDate}${t.separators.dateRange}${role.endDate}`;
+    const rightSide = role.location
+      ? `${dateText}${t.separators.dateLocationJoin}${role.location}`
+      : dateText;
+    pdf.text(rightSide, t.page.width - t.page.marginX, c.y, { align: 'right' });
     c.y += t.spacing.afterRoleHeader;
-
-    // Optional location line (italic, right-aligned).
-    if (role.location) {
-      applyStyle(pdf, t.styles.location);
-      pdf.text(role.location, t.page.width - t.page.marginX, c.y, { align: 'right' });
-      c.y += t.spacing.afterLocation;
-    } else {
-      c.y += t.spacing.afterRoleHeaderNoLocation;
-    }
 
     renderBulletList(pdf, t, c, role.bullets);
     c.y += t.spacing.betweenRoles;
