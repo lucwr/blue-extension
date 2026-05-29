@@ -142,6 +142,16 @@ export const api = {
     });
     return result.proposal;
   },
+
+  async importResumePdf(pdfBase64: string): Promise<MasterProfile> {
+    // PDF parse + LLM call is slow — give it a generous timeout.
+    const result = await request<{ profile: MasterProfile }>('/api/profile/import-pdf', {
+      method: 'POST',
+      body: { pdfBase64 },
+      timeoutMs: 180_000,
+    });
+    return result.profile;
+  },
 };
 
 export { ApiCallError };

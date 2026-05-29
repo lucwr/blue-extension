@@ -11,6 +11,7 @@ import type {
   GenerateProposalMessage,
   GenerateResumeMessage,
   HealthcheckMessage,
+  ImportResumePdfMessage,
   MessageResult,
 } from '@/types/messages';
 import { createLogger } from '@/utils/logger';
@@ -92,6 +93,17 @@ async function handleResume(msg: GenerateResumeMessage): Promise<MessageResult<'
   }
 }
 
+async function handleImportResumePdf(
+  msg: ImportResumePdfMessage,
+): Promise<MessageResult<'BG_IMPORT_RESUME_PDF'>> {
+  try {
+    const profile = await api.importResumePdf(msg.payload.pdfBase64);
+    return { ok: true, data: profile };
+  } catch (err) {
+    return { ok: false, error: toAppError(err) };
+  }
+}
+
 async function handleProposal(
   msg: GenerateProposalMessage,
 ): Promise<MessageResult<'BG_GENERATE_PROPOSAL'>> {
@@ -124,6 +136,8 @@ export async function dispatch(message: AppMessage): Promise<MessageResult<AppMe
       return handleResume(message);
     case 'BG_GENERATE_PROPOSAL':
       return handleProposal(message);
+    case 'BG_IMPORT_RESUME_PDF':
+      return handleImportResumePdf(message);
     case 'CS_EXTRACT_JD':
       // Should be routed to tab — popup uses sendToTab directly. Surface a clear error.
       return {

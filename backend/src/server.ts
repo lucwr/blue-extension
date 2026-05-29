@@ -6,7 +6,7 @@ const app = createApp();
 
 const server = app.listen(config.port, () => {
   logger.info(
-    { port: config.port, env: config.env, models: config.openai.models },
+    { port: config.port, env: config.env, models: config.llm.models },
     'resume-maker backend listening',
   );
 });

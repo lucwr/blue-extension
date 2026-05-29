@@ -6,13 +6,14 @@
  */
 import type { ExtractedJobDescription, AnalyzedJobDescription } from './jd';
 import type { ProposalJson, ProposalTone } from './proposal';
-import type { ResumeJson } from './resume';
+import type { MasterProfile, ResumeJson } from './resume';
 
 export type MessageType =
   | 'CS_EXTRACT_JD'
   | 'BG_ANALYZE_JD'
   | 'BG_GENERATE_RESUME'
   | 'BG_GENERATE_PROPOSAL'
+  | 'BG_IMPORT_RESUME_PDF'
   | 'BG_HEALTHCHECK';
 
 interface BaseMessage<T extends MessageType, P> {
@@ -41,12 +42,17 @@ export type GenerateProposalMessage = BaseMessage<
   }
 >;
 export type HealthcheckMessage = BaseMessage<'BG_HEALTHCHECK', Record<string, never>>;
+export type ImportResumePdfMessage = BaseMessage<
+  'BG_IMPORT_RESUME_PDF',
+  { pdfBase64: string }
+>;
 
 export type AppMessage =
   | ExtractJdMessage
   | AnalyzeJdMessage
   | GenerateResumeMessage
   | GenerateProposalMessage
+  | ImportResumePdfMessage
   | HealthcheckMessage;
 
 export interface MessageResponseMap {
@@ -54,6 +60,7 @@ export interface MessageResponseMap {
   BG_ANALYZE_JD: AnalyzedJobDescription;
   BG_GENERATE_RESUME: ResumeJson;
   BG_GENERATE_PROPOSAL: ProposalJson;
+  BG_IMPORT_RESUME_PDF: MasterProfile;
   BG_HEALTHCHECK: { ok: true; backendReachable: boolean; version: string };
 }
 

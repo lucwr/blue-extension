@@ -18,7 +18,9 @@ export function createApp(): Express {
       credentials: false,
     }),
   );
-  app.use(express.json({ limit: '1mb' }));
+  // 25mb headroom for the PDF-import route (base64-encoded resumes are
+  // typically 1-5mb after base64 expansion). All other routes are tiny JSON.
+  app.use(express.json({ limit: '25mb' }));
   app.use(
     morgan(config.isDev ? 'dev' : 'combined', {
       stream: { write: (msg) => logger.info(msg.trim()) },

@@ -26,19 +26,6 @@
   },
   "content_scripts": [
     {
-      "matches": [
-        "https://www.upwork.com/*",
-        "https://www.linkedin.com/*",
-        "https://www.indeed.com/*",
-        "https://www.freelancer.com/*",
-        "https://remoteok.com/*",
-        "https://wellfound.com/*"
-      ],
-      "js": ["src/content/index.ts"],
-      "run_at": "document_idle",
-      "all_frames": false
-    },
-    {
       "matches": ["http://*/*", "https://*/*"],
       "js": ["src/content/index.ts"],
       "run_at": "document_idle",
