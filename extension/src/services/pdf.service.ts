@@ -311,20 +311,67 @@ function renderSkillRow(
   c.y += t.spacing.betweenSkillRows;
 }
 
+/**
+ * Estimate the height in inches the entire Skills section will consume.
+ *
+ * Uses jsPDF's real text-measurement (splitTextToSize) for each skill row so
+ * the estimate is accurate to within one line height. Used by `renderSkills`
+ * when `template.rules.keepSkillsOnOnePage` is true to decide whether to
+ * page-break BEFORE starting the section.
+ */
+function estimateSkillsHeight(
+  pdf: jsPDF,
+  t: ResumeTemplate,
+  rows: ReadonlyArray<{ label: string; items: readonly string[] }>,
+): number {
+  // Section heading area: pre-gap + heading line + rule + post-gap.
+  let height =
+    t.spacing.beforeSectionHeading +
+    t.spacing.bodyLineHeight +
+    t.spacing.sectionTextToRule +
+    t.spacing.afterSectionRule;
+
+  // Each row: measure label width with skillLabel style, then split the
+  // " (item1, item2, ...)" tail at skillItems style and accumulate.
+  const innerWidth = contentWidth(t);
+  for (const row of rows) {
+    applyStyle(pdf, t.styles.skillLabel);
+    const labelW = pdf.getTextWidth(row.label);
+    applyStyle(pdf, t.styles.skillItems);
+    const tail = ` (${row.items.join(', ')})`;
+    const lines = pdf.splitTextToSize(tail, innerWidth - labelW) as string[];
+    height += lines.length * t.spacing.bodyLineHeight + t.spacing.betweenSkillRows;
+  }
+
+  return height;
+}
+
 function renderSkills(pdf: jsPDF, t: ResumeTemplate, c: Cursor, resume: ResumeJson): void {
-  const hasBucket = SKILL_BUCKET_LABELS.some(([k]) => resume.skills[k].length > 0);
-  const hasExtra = resume.extras.some((e) => e.items.length > 0);
-  if (!hasBucket && !hasExtra) return;
-
-  renderSectionHeading(pdf, t, c, 'Skills');
-
+  const rows: Array<{ label: string; items: readonly string[] }> = [];
   for (const [key, label] of SKILL_BUCKET_LABELS) {
     if (resume.skills[key].length === 0) continue;
-    renderSkillRow(pdf, t, c, label, resume.skills[key]);
+    rows.push({ label, items: resume.skills[key] });
   }
   for (const extra of resume.extras) {
     if (extra.items.length === 0) continue;
-    renderSkillRow(pdf, t, c, extra.heading, extra.items);
+    rows.push({ label: extra.heading, items: extra.items });
+  }
+  if (rows.length === 0) return;
+
+  // Template rule: keep the whole Skills section on a single page.
+  // If it won't fit on the current page, start a fresh page first.
+  if (t.rules.keepSkillsOnOnePage) {
+    const needed = estimateSkillsHeight(pdf, t, rows);
+    const remaining = t.page.height - t.page.marginBottom - c.y;
+    if (needed > remaining) {
+      pdf.addPage();
+      c.y = t.page.marginTop;
+    }
+  }
+
+  renderSectionHeading(pdf, t, c, 'Skills');
+  for (const row of rows) {
+    renderSkillRow(pdf, t, c, row.label, row.items);
   }
 }
 

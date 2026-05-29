@@ -161,6 +161,12 @@ export interface ResumeTemplate {
   rules: {
     /** When true, section-heading text is rendered as `text.toUpperCase()`. */
     sectionHeadingUppercase: boolean;
+    /**
+     * When true, the Skills section will start on a fresh page if its
+     * estimated height does not fit on the current page. Prevents the
+     * skill rows from being split across two pages.
+     */
+    keepSkillsOnOnePage: boolean;
   };
 }
 
@@ -170,50 +176,58 @@ export const ATS_TEMPLATE: ResumeTemplate = {
   page: {
     width: 8.5,
     height: 11,
-    marginX: 0.67,
+    // Side margins tightened a touch — gives ~7.3" content width instead of 7.16"
+    marginX: 0.7,
+    // Top tightened, bottom widened for more "settled" bottom-of-page feel
     marginTop: 0.7,
-    marginBottom: 0.7,
+    marginBottom: 0.75,
   },
 
   styles: {
-    name: { family: 'times', size: 24, weight: 'bold' },
-    targetTitle: { family: 'times', size: 14, weight: 'italic' },
-    contact: { family: 'times', size: 11, weight: 'normal' },
-    sectionHeading: { family: 'times', size: 11, weight: 'bold' },
+    // Header pieces stay where they were — only the body content scales up.
+    name: { family: 'times', size: 26, weight: 'bold' },
+    targetTitle: { family: 'times', size: 16, weight: 'italic' },
+    contact: { family: 'times', size: 12, weight: 'normal' },
+    // Section headings stay one size above body so the hierarchy still reads.
+    sectionHeading: { family: 'times', size: 13, weight: 'bold' },
+    // Body / bullets / inline content all scale +2.
     body: { family: 'times', size: 11, weight: 'normal' },
-    company: { family: 'times', size: 11, weight: 'bold' },
-    role: { family: 'times', size: 11, weight: 'italic' },
-    date: { family: 'times', size: 10, weight: 'normal' },
-    location: { family: 'times', size: 10.5, weight: 'italic' },
-    bullet: { family: 'times', size: 11, weight: 'normal' },
-    institution: { family: 'times', size: 11, weight: 'bold' },
-    degree: { family: 'times', size: 11, weight: 'italic' },
-    projectName: { family: 'times', size: 10.5, weight: 'bold' },
-    projectLink: { family: 'times', size: 9.5, weight: 'italic' },
-    projectStack: { family: 'times', size: 9.5, weight: 'italic' },
-    skillLabel: { family: 'times', size: 11, weight: 'bold' },
+    company: { family: 'times', size: 13, weight: 'bold' },
+    role: { family: 'times', size: 13, weight: 'italic' },
+    date: { family: 'times', size: 11, weight: 'normal' },
+    location: { family: 'times', size: 11, weight: 'italic' },
+    bullet: { family: 'times', size: 13, weight: 'normal' },
+    institution: { family: 'times', size: 13, weight: 'bold' },
+    degree: { family: 'times', size: 13, weight: 'italic' },
+    projectName: { family: 'times', size: 12, weight: 'bold' },
+    projectLink: { family: 'times', size: 10, weight: 'italic' },
+    projectStack: { family: 'times', size: 10, weight: 'italic' },
+    skillLabel: { family: 'times', size: 12, weight: 'bold' },
     skillItems: { family: 'times', size: 11, weight: 'normal' },
   },
 
   spacing: {
     headerFirstBaseline: 0.3,
-    afterName: 0.32,
+    afterName: 0.34,
     afterTitle: 0.3,
-    afterContact: 0.12,
+    afterContact: 0.16,
     beforeSectionGuard: 0.6,
     beforeSectionHeading: 0.24,
     sectionTextToRule: 0.06,
-    afterSectionRule: 0.18,
-    bodyLineHeight: 0.18,
-    smallLineHeight: 0.16,
-    afterRoleHeader: 0.21,
-    afterLocation: 0.2,
-    afterRoleHeaderNoLocation: 0.04,
-    betweenRoles: 0.2,
-    betweenSkillRows: 0.24,
-    betweenEducationEntries: 0.26,
-    betweenProjects: 0.2,
-    afterProjectHeader: 0.21,
+    // Larger gap after the rule — "increase the spacing after line on work experiences"
+    afterSectionRule: 0.26,
+    // Body grew from 11pt to 13pt; line height bumps proportionally (~1.35× size).
+    bodyLineHeight: 0.22,
+    smallLineHeight: 0.18,
+    afterRoleHeader: 0.24,
+    afterLocation: 0.22,
+    afterRoleHeaderNoLocation: 0.06,
+    // Tighter gap between roles — "reduce the spacing between work experiences"
+    betweenRoles: 0.12,
+    betweenSkillRows: 0.26,
+    betweenEducationEntries: 0.28,
+    betweenProjects: 0.22,
+    afterProjectHeader: 0.24,
   },
 
   sectionRule: {
@@ -237,5 +251,6 @@ export const ATS_TEMPLATE: ResumeTemplate = {
 
   rules: {
     sectionHeadingUppercase: true,
+    keepSkillsOnOnePage: true,
   },
 };
