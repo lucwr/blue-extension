@@ -142,7 +142,6 @@ Keyword placement rules:
 - Put all major technical keywords in Skills.
 - Repeat the most important keywords inside Professional Experience bullets.
 - Use exact JD wording where natural.
-- Add a Soft Skills line in Skills when the JD includes soft-skill phrases.
 - If the JD repeats a keyword several times, use that keyword more than once across the resume.
 - Do not keyword-stuff.
 - Do not create long unnatural keyword lists.
@@ -272,8 +271,6 @@ If a category is not relevant, remove it.
 Do not include empty categories.
 Do not include irrelevant skills.
 Use exact JD technologies when realistic.
-Add this category when the JD includes soft-skill phrases:
-Soft Skills:
 
 ==================================================
 EXPERIENCE WRITING RULES
@@ -399,7 +396,7 @@ SECTION → JSON KEY MAP
     Databases          → skills.databases[]
     Testing            → skills.testing[]
     Tools & Workflows  → skills.tools[]
-    AI/ML, Security, Networking, Others, Soft Skills, Workflow & Automation
+    AI/ML, Security, Networking, Others, Workflow & Automation
                        → extras[] as { heading: "AI/ML" | "Security" | ... , items: string[] }
 - Each "[Role Title] / Company | Location | Dates" block → experience[] entry (one per role from the master profile, same order, same companies & dates)
 - Each "- [Bullet]"                    → experience[i].bullets[j]
