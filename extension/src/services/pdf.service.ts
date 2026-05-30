@@ -30,11 +30,18 @@ import { jsPDF } from 'jspdf';
 import { ATS_TEMPLATE, type ResumeTemplate, type TextStyle } from '@/templates/atsTemplate';
 import type { ResumeJson, ResumeSkills } from '@/types/resume';
 import { createLogger } from '@/utils/logger';
+import { MAX_SHRINK_LEVEL, shrinkResume } from './resume-shrinker';
 
 const log = createLogger('pdf');
 
+/** Hard cap on rendered PDF pages. Resumes exceeding this are content-trimmed
+ *  by the shrinker until they fit or the maximum shrink level is reached. */
+const MAX_PAGES_DEFAULT = 3;
+
 interface DownloadOptions {
   filename?: string;
+  /** Override the maximum page count (defaults to MAX_PAGES_DEFAULT). */
+  maxPages?: number;
 }
 
 interface Cursor {
@@ -461,6 +468,38 @@ export function renderResumeToPdf(resume: ResumeJson, template: ResumeTemplate):
   return pdf;
 }
 
+/**
+ * Render the resume and, if it exceeds `maxPages`, progressively shrink
+ * the content (extras tail → older bullets → projects → summary length)
+ * and re-render until it fits or the maximum shrink level is reached.
+ *
+ * The popup's stored resume is NEVER mutated — only the local working copy
+ * passed into jsPDF is trimmed. The PDF saved to disk reflects the trimmed
+ * version; the popup keeps showing the full content.
+ */
+function renderResumeToFit(
+  resume: ResumeJson,
+  template: ResumeTemplate,
+  maxPages: number,
+): { pdf: jsPDF; finalLevel: number; finalPages: number } {
+  for (let level = 0; level <= MAX_SHRINK_LEVEL; level += 1) {
+    const working = level === 0 ? resume : shrinkResume(resume, level);
+    const pdf = renderResumeToPdf(working, template);
+    const pages = pdf.getNumberOfPages();
+    if (pages <= maxPages || level === MAX_SHRINK_LEVEL) {
+      return { pdf, finalLevel: level, finalPages: pages };
+    }
+    log.info('PDF too long — escalating shrink level', { level: level + 1, pages, maxPages });
+  }
+  // Unreachable — loop always returns when level === MAX_SHRINK_LEVEL.
+  /* istanbul ignore next */
+  return {
+    pdf: renderResumeToPdf(resume, template),
+    finalLevel: 0,
+    finalPages: 0,
+  };
+}
+
 export async function downloadResumePdf(
   resume: ResumeJson,
   options: DownloadOptions = {},
@@ -468,11 +507,21 @@ export async function downloadResumePdf(
   const filename =
     options.filename ??
     `${sanitizeFilename(resume.contact.fullName)}_${sanitizeFilename(resume.targetTitle)}.pdf`;
+  const maxPages = options.maxPages ?? MAX_PAGES_DEFAULT;
 
-  log.info('rendering PDF', { filename });
+  log.info('rendering PDF', { filename, maxPages });
 
-  const pdf = renderResumeToPdf(resume, ATS_TEMPLATE);
+  const { pdf, finalLevel, finalPages } = renderResumeToFit(resume, ATS_TEMPLATE, maxPages);
   pdf.save(filename);
 
-  log.info('PDF downloaded', { filename, pages: pdf.getNumberOfPages() });
+  if (finalLevel === 0) {
+    log.info('PDF downloaded (no shrink needed)', { filename, pages: finalPages });
+  } else {
+    log.info('PDF downloaded (content trimmed to fit pages)', {
+      filename,
+      pages: finalPages,
+      shrinkLevel: finalLevel,
+      maxLevel: MAX_SHRINK_LEVEL,
+    });
+  }
 }
