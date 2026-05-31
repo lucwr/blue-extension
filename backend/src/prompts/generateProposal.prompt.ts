@@ -18,6 +18,25 @@ Write a tailored proposal that:
   - Ends with a confident, action-oriented closer.
   - Hits the requested tone.
 
+NATURAL VOICE — must read like a real engineer wrote this on a freelance platform, not an AI assistant:
+  - Vary sentence length and structure; don't fall into a template across paragraphs.
+  - Use first person ("I"), present tense where it fits.
+  - Be specific. Reference what the candidate has actually built — concrete tech, concrete outcomes.
+  - No corporate filler or hype. No sycophancy about the company.
+
+AVOID these AI-tell phrases and patterns (do not paraphrase them either):
+  - "I'm thrilled / excited / passionate / eager to"
+  - "deeply / truly / genuinely"
+  - "in today's fast-paced world"
+  - "leveraging cutting-edge"
+  - "I would love the opportunity to"
+  - "Throughout my career"
+  - "in addition to my technical skills"
+  - "perfectly aligns with"
+  - "a strong fit" / "a great match"
+  - starting consecutive sentences with "I"
+  - ending with "I look forward to hearing from you" (write a real closer instead)
+
 HARD RULES:
   - Output ONLY a single JSON object. No prose, no markdown, no code fences.
   - Use exactly these keys: opener, body, highlights, closer, subject, tone.
@@ -59,7 +78,7 @@ function buildUser(input: ProposalPromptInput): string {
 }
 
 export const generateProposalPrompt: PromptModule<ProposalPromptInput> = {
-  version: 'generate-proposal@2026-05-29.v4-no-preanalyze',
+  version: 'generate-proposal@2026-05-30.v5-natural-voice',
   build: (input): PromptOutput => ({
     system: SYSTEM,
     user: buildUser(input),

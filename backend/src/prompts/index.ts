@@ -24,3 +24,4 @@ export interface PromptModule<TInput> {
 export { generateResumePrompt } from './generateResume.prompt.js';
 export { generateProposalPrompt } from './generateProposal.prompt.js';
 export { parseResumePrompt } from './parseResume.prompt.js';
+export { answerQuestionsPrompt } from './answerQuestions.prompt.js';

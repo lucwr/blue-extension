@@ -5,6 +5,7 @@
  */
 import { getMasterProfile, getSettings, pushHistory } from '@/storage';
 import type {
+  AnswerQuestionsMessage,
   AppError,
   AppMessage,
   GenerateProposalMessage,
@@ -109,6 +110,26 @@ async function handleProposal(
   }
 }
 
+async function handleAnswerQuestions(
+  msg: AnswerQuestionsMessage,
+): Promise<MessageResult<'BG_ANSWER_QUESTIONS'>> {
+  const { questions, context } = msg.payload;
+  if (questions.length === 0) {
+    return { ok: true, data: { answers: [] } };
+  }
+  try {
+    const result = await api.answerQuestions({
+      questions,
+      jd: context.jd,
+      resume: context.resume,
+      masterProfile: context.masterProfile,
+    });
+    return { ok: true, data: result };
+  } catch (err) {
+    return { ok: false, error: toAppError(err) };
+  }
+}
+
 export async function dispatch(message: AppMessage): Promise<MessageResult<AppMessage['type']>> {
   log.debug('dispatch', message.type);
   // Bootstrap settings on first use so DEFAULT_SETTINGS always seeds in.
@@ -123,13 +144,18 @@ export async function dispatch(message: AppMessage): Promise<MessageResult<AppMe
       return handleProposal(message);
     case 'BG_IMPORT_RESUME_PDF':
       return handleImportResumePdf(message);
+    case 'BG_ANSWER_QUESTIONS':
+      return handleAnswerQuestions(message);
     case 'CS_EXTRACT_JD':
-      // Should be routed to tab — popup uses sendToTab directly. Surface a clear error.
+    case 'CS_AUTOFILL_BID':
+    case 'CS_FILL_ANSWERS':
+      // CS_* messages travel popup → tab directly via sendToTab. Surface a
+      // clear error if one ever lands here by mistake.
       return {
         ok: false,
         error: {
           code: 'UNKNOWN',
-          message: 'CS_EXTRACT_JD must be sent to a tab, not the background worker.',
+          message: `${message.type} must be sent to a tab, not the background worker.`,
         },
       } satisfies MessageResult<'CS_EXTRACT_JD'>;
     default: {

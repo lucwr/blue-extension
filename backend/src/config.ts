@@ -23,6 +23,8 @@ const schema = z.object({
   LLM_MODEL_ANALYZE: z.string().optional(),
   LLM_MODEL_RESUME: z.string().optional(),
   LLM_MODEL_PROPOSAL: z.string().optional(),
+  /** Q&A model — short answers, run frequently. Defaults to Haiku for speed. */
+  LLM_MODEL_QA: z.string().optional(),
   LLM_TIMEOUT_MS: z
     .string()
     .default('60000')
@@ -72,6 +74,8 @@ export const config = {
       analyze: parsed.data.LLM_MODEL_ANALYZE ?? parsed.data.LLM_MODEL,
       resume: parsed.data.LLM_MODEL_RESUME ?? parsed.data.LLM_MODEL,
       proposal: parsed.data.LLM_MODEL_PROPOSAL ?? parsed.data.LLM_MODEL,
+      // Q&A defaults to Haiku — short answers, latency-sensitive (runs every bid).
+      qa: parsed.data.LLM_MODEL_QA ?? 'anthropic/claude-haiku-4.5',
     },
     timeoutMs: parsed.data.LLM_TIMEOUT_MS,
     maxValidationRetries: parsed.data.LLM_MAX_VALIDATION_RETRIES,

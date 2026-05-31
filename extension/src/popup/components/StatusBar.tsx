@@ -7,6 +7,8 @@ const LABELS: Record<FlowStep, string> = {
   extracting: 'Extracting job description…',
   'generating-resume': 'Generating ATS-optimized resume…',
   'generating-proposal': 'Generating tailored proposal…',
+  'auto-filling': 'Auto-filling bid form…',
+  'answering-questions': 'Drafting answers to bid questions…',
 };
 
 interface Props {

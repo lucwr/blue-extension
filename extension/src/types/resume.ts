@@ -89,6 +89,23 @@ export interface ResumeExtra {
   items: string[];
 }
 
+/** Yes/No/Prefer-not-to-say for boolean-shaped EEO questions. */
+export type YesNoPNTS = 'yes' | 'no' | 'prefer-not-to-say' | '';
+
+/**
+ * Demographics / EEO answers — filled once in the Profile tab and reused
+ * by the auto-fill engine for every bid form.
+ */
+export interface ResumeDemographics {
+  workAuthorizedUS: YesNoPNTS;
+  requiresSponsorshipUS: YesNoPNTS;
+  gender: string;
+  race: string;
+  veteran: string;
+  disability: string;
+  pronouns: string;
+}
+
 /**
  * Skeleton "master profile" the user fills in once. The AI tailors *this*
  * into a job-specific `ResumeJson` — the master profile is the source of truth
@@ -103,6 +120,18 @@ export interface MasterProfile {
   education: ResumeEducation[];
   certifications: ResumeCertification[];
   extras: ResumeExtra[];
+  /** Optional — older profiles without demographics still load. */
+  demographics?: ResumeDemographics;
 }
+
+export const EMPTY_DEMOGRAPHICS: ResumeDemographics = {
+  workAuthorizedUS: '',
+  requiresSponsorshipUS: '',
+  gender: '',
+  race: '',
+  veteran: '',
+  disability: '',
+  pronouns: '',
+};
 
 export const RESUME_SCHEMA_VERSION = '1.0.0';

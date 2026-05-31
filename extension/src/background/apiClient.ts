@@ -9,7 +9,12 @@
  */
 import { getAuthToken, getSettings } from '@/storage';
 import type { ExtractedJobDescription } from '@/types/jd';
-import type { AppError, AppErrorCode } from '@/types/messages';
+import type {
+  AnsweredQuestion,
+  AppError,
+  AppErrorCode,
+  AutofillPendingQuestion,
+} from '@/types/messages';
 import type { ProposalJson, ProposalTone } from '@/types/proposal';
 import type { ResumeJson, MasterProfile } from '@/types/resume';
 import { createLogger } from '@/utils/logger';
@@ -145,6 +150,43 @@ export const api = {
       timeoutMs: 180_000,
     });
     return result.profile;
+  },
+
+  async answerQuestions(input: {
+    questions: AutofillPendingQuestion[];
+    jd: ExtractedJobDescription;
+    resume: ResumeJson;
+    masterProfile: MasterProfile;
+  }): Promise<{ answers: AnsweredQuestion[] }> {
+    // Map content-script questions (fieldIndex-based) to LLM-friendly ids,
+    // then map answers back to fieldIndex. Keeps the LLM prompt clean —
+    // it sees stable string ids, not opaque numeric indices.
+    const idToFieldIndex = new Map<string, number>();
+    const llmQuestions = input.questions.map((q, i) => {
+      const id = `q${i + 1}`;
+      idToFieldIndex.set(id, q.fieldIndex);
+      return { id, question: q.question };
+    });
+    const result = await request<{ answers: Array<{ id: string; text: string }> }>(
+      '/api/answer-questions',
+      {
+        method: 'POST',
+        body: {
+          questions: llmQuestions,
+          jd: input.jd,
+          resume: input.resume,
+          masterProfile: input.masterProfile,
+        },
+        timeoutMs: 120_000,
+      },
+    );
+    const answers: AnsweredQuestion[] = [];
+    for (const a of result.answers) {
+      const fieldIndex = idToFieldIndex.get(a.id);
+      if (fieldIndex === undefined) continue;
+      answers.push({ fieldIndex, answer: a.text });
+    }
+    return { answers };
   },
 };
 

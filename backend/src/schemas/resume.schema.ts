@@ -90,6 +90,33 @@ export const ResumeJsonSchema = z.object({
 });
 export type ResumeJson = z.infer<typeof ResumeJsonSchema>;
 
+/**
+ * Demographics / EEO fields. All optional — the candidate fills these once
+ * in the Profile tab so the auto-fill engine can answer the common bid-form
+ * questions (work auth, sponsorship, race, gender, veteran, disability,
+ * pronouns) without re-prompting per application.
+ *
+ * Yes/No fields are strings so the autofill can match the literal option
+ * text the bid form uses (e.g. "Yes", "No", "Prefer not to say").
+ */
+export const ResumeDemographicsSchema = z.object({
+  /** US work authorization. Common Yes/No question on US bid forms. */
+  workAuthorizedUS: z.enum(['yes', 'no', 'prefer-not-to-say', '']).default(''),
+  /** Whether the candidate requires visa sponsorship now or in the future. */
+  requiresSponsorshipUS: z.enum(['yes', 'no', 'prefer-not-to-say', '']).default(''),
+  /** Free-form so it matches whatever bucket label the form uses. */
+  gender: z.string().max(80).default(''),
+  /** Free-form (e.g. "Asian", "Black or African American", "Prefer not to say"). */
+  race: z.string().max(120).default(''),
+  /** Veteran status: free-form (US EEO categories vary by form). */
+  veteran: z.string().max(120).default(''),
+  /** Self-identified disability status. */
+  disability: z.string().max(120).default(''),
+  /** Pronouns the candidate prefers (e.g. "she/her", "they/them"). */
+  pronouns: z.string().max(40).default(''),
+});
+export type ResumeDemographics = z.infer<typeof ResumeDemographicsSchema>;
+
 export const MasterProfileSchema = z.object({
   contact: ResumeContactSchema,
   summary: z.string().max(1000),
@@ -99,6 +126,8 @@ export const MasterProfileSchema = z.object({
   education: z.array(ResumeEducationSchema).max(10),
   certifications: z.array(ResumeCertificationSchema).max(20),
   extras: z.array(ResumeExtraSchema).max(6),
+  /** Optional — old profiles without this field still validate. */
+  demographics: ResumeDemographicsSchema.optional(),
 });
 export type MasterProfile = z.infer<typeof MasterProfileSchema>;
 

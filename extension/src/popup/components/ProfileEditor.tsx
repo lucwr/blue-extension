@@ -15,13 +15,16 @@
  */
 import { useEffect, useRef, useState, type FC, type ReactNode } from 'react';
 import { sendToBackground } from '@/services/messaging';
-import type {
-  MasterProfile,
-  ResumeContact,
-  ResumeEducation,
-  ResumeExperience,
-  ResumeProject,
-  ResumeSkills,
+import {
+  EMPTY_DEMOGRAPHICS,
+  type MasterProfile,
+  type ResumeContact,
+  type ResumeDemographics,
+  type ResumeEducation,
+  type ResumeExperience,
+  type ResumeProject,
+  type ResumeSkills,
+  type YesNoPNTS,
 } from '@/types/resume';
 import { useMasterProfile } from '../hooks/useStorage';
 
@@ -141,6 +144,28 @@ const Area: FC<{
   </label>
 );
 
+const Select: FC<{
+  label: string;
+  value: string;
+  options: ReadonlyArray<{ value: string; label: string }>;
+  onChange: (v: string) => void;
+}> = ({ label, value, options, onChange }) => (
+  <label className="block">
+    <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">{label}</span>
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1.5 text-xs focus:border-brand-500 focus:outline-none"
+    >
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  </label>
+);
+
 const Section: FC<{ title: string; subtitle?: string; children: ReactNode }> = ({
   title,
   subtitle,
@@ -224,6 +249,12 @@ export const ProfileEditor: FC = () => {
     setDraft((d) => ({
       ...d,
       education: d.education.map((r, i) => (i === idx ? { ...r, ...patch } : r)),
+    }));
+
+  const patchDemographics = (patch: Partial<ResumeDemographics>): void =>
+    setDraft((d) => ({
+      ...d,
+      demographics: { ...(d.demographics ?? EMPTY_DEMOGRAPHICS), ...patch },
     }));
 
   const showFlash = (msg: string, ms = 1800): void => {
@@ -617,6 +648,89 @@ export const ProfileEditor: FC = () => {
             setDraft((d) => ({ ...d, education: [...d.education, { ...EMPTY_EDUCATION }] }))
           }
         />
+      </Section>
+
+      <Section
+        title="Demographics (EEO)"
+        subtitle="Optional. Filled in once, then auto-applied to every bid form that asks."
+      >
+        {(() => {
+          const demo = draft.demographics ?? EMPTY_DEMOGRAPHICS;
+          const yesNo: ReadonlyArray<{ value: YesNoPNTS; label: string }> = [
+            { value: '', label: '— Not specified —' },
+            { value: 'yes', label: 'Yes' },
+            { value: 'no', label: 'No' },
+            { value: 'prefer-not-to-say', label: 'Prefer not to say' },
+          ];
+          const genderOptions = [
+            { value: '', label: '— Not specified —' },
+            { value: 'Female', label: 'Female' },
+            { value: 'Male', label: 'Male' },
+            { value: 'Non-binary', label: 'Non-binary' },
+            { value: 'Prefer not to say', label: 'Prefer not to say' },
+          ];
+          const veteranOptions = [
+            { value: '', label: '— Not specified —' },
+            { value: 'I am not a protected veteran', label: 'Not a protected veteran' },
+            { value: 'I identify as a protected veteran', label: 'Protected veteran' },
+            { value: 'Prefer not to say', label: 'Prefer not to say' },
+          ];
+          const disabilityOptions = [
+            { value: '', label: '— Not specified —' },
+            { value: 'Yes, I have a disability', label: 'Yes, I have a disability' },
+            { value: 'No, I do not have a disability', label: 'No' },
+            {
+              value: "I don't wish to answer",
+              label: 'Prefer not to say',
+            },
+          ];
+          return (
+            <>
+              <Select
+                label="Authorized to work in the US"
+                value={demo.workAuthorizedUS}
+                options={yesNo}
+                onChange={(v) => patchDemographics({ workAuthorizedUS: v as YesNoPNTS })}
+              />
+              <Select
+                label="Requires US visa sponsorship"
+                value={demo.requiresSponsorshipUS}
+                options={yesNo}
+                onChange={(v) => patchDemographics({ requiresSponsorshipUS: v as YesNoPNTS })}
+              />
+              <Select
+                label="Gender"
+                value={demo.gender}
+                options={genderOptions}
+                onChange={(v) => patchDemographics({ gender: v })}
+              />
+              <Field
+                label="Race / Ethnicity"
+                placeholder="e.g. Asian, White, Two or more races"
+                value={demo.race}
+                onChange={(v) => patchDemographics({ race: v })}
+              />
+              <Select
+                label="Veteran status"
+                value={demo.veteran}
+                options={veteranOptions}
+                onChange={(v) => patchDemographics({ veteran: v })}
+              />
+              <Select
+                label="Disability status"
+                value={demo.disability}
+                options={disabilityOptions}
+                onChange={(v) => patchDemographics({ disability: v })}
+              />
+              <Field
+                label="Pronouns"
+                placeholder="e.g. she/her, he/him, they/them"
+                value={demo.pronouns}
+                onChange={(v) => patchDemographics({ pronouns: v })}
+              />
+            </>
+          );
+        })()}
       </Section>
 
       <Section title="Import / Export" subtitle="Paste a profile JSON to seed, or copy yours for backup.">
