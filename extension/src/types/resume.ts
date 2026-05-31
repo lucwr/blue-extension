@@ -105,6 +105,8 @@ export interface ResumeDemographics {
   disability: string;
   /** Common Greenhouse follow-up: "Do you identify as transgender?" */
   transgender: YesNoPNTS;
+  /** "Are you Hispanic/Latino?" — separate yes/no/PNTS field on US EEO forms. */
+  hispanicLatino: YesNoPNTS;
   pronouns: string;
 }
 
@@ -123,6 +125,10 @@ export interface BidPreferences {
   howDidYouHear: string;
   /** "What are your salary expectations?" — free-text, often a range. */
   salaryExpectation: string;
+  /** "Highest degree attained" — Bachelor's Degree, Master of Business Administration (M.B.A.), etc. */
+  highestDegree: string;
+  /** "Are you 18 years of age or older?" — defaults to 'yes' since virtually all candidates are. */
+  over18: YesNoPNTS;
 }
 
 /**
@@ -153,6 +159,7 @@ export const EMPTY_DEMOGRAPHICS: ResumeDemographics = {
   veteran: '',
   disability: '',
   transgender: '',
+  hispanicLatino: '',
   pronouns: '',
 };
 
@@ -161,6 +168,8 @@ export const EMPTY_BID_PREFERENCES: BidPreferences = {
   hasRelevantExperience: 'yes',
   howDidYouHear: 'LinkedIn',
   salaryExpectation: '',
+  highestDegree: '',
+  over18: 'yes',
 };
 
 export const RESUME_SCHEMA_VERSION = '1.0.0';

@@ -662,6 +662,46 @@ export const ProfileEditor: FC = () => {
         title="Demographics (EEO)"
         subtitle="Optional. Filled in once, then auto-applied to every bid form that asks."
       >
+        {/*
+          One-click reset. Writes the typical-candidate sample answers
+          (work auth = yes; sponsorship / veteran / disability / transgender
+          / prior employment = no; experience = yes). Overwrites whatever
+          the current state is — useful when an old import / mistaken
+          selection left a field set to "yes" or "Prefer not to say".
+        */}
+        <div className="mb-2 flex items-center gap-2 rounded-md border border-brand-200 bg-brand-50 p-2 text-[11px]">
+          <button
+            type="button"
+            onClick={() => {
+              setDraft((d) => ({
+                ...d,
+                demographics: {
+                  ...(d.demographics ?? EMPTY_DEMOGRAPHICS),
+                  workAuthorizedUS: 'yes',
+                  requiresSponsorshipUS: 'no',
+                  veteran: 'I am not a protected veteran',
+                  disability: 'No, I do not have a disability',
+                  transgender: 'no',
+                  hispanicLatino: 'no',
+                },
+                bidPreferences: {
+                  ...(d.bidPreferences ?? EMPTY_BID_PREFERENCES),
+                  priorEmployment: 'no',
+                  hasRelevantExperience: 'yes',
+                  over18: 'yes',
+                },
+              }));
+              showFlash('Demographics + bid defaults reset — click Save profile');
+            }}
+            className="rounded-md bg-brand-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-brand-700"
+          >
+            Set safe defaults
+          </button>
+          <span className="text-brand-900/70">
+            Work auth = Yes, sponsorship/veteran/disability/transgender/prior employment = No,
+            experience = Yes. Gender + race stay as-is (you fill those manually).
+          </span>
+        </div>
         {(() => {
           const demo = draft.demographics ?? EMPTY_DEMOGRAPHICS;
           const yesNo: ReadonlyArray<{ value: YesNoPNTS; label: string }> = [
@@ -677,20 +717,22 @@ export const ProfileEditor: FC = () => {
             { value: 'Non-binary', label: 'Non-binary' },
             { value: 'Prefer not to say', label: 'Prefer not to say' },
           ];
+          // Veteran "Yes" value uses "I am a protected veteran" — `canonicalOf`
+          // maps `/^i am\b/` to "yes" so this picks the matching option on
+          // forms with Yes/No or full-phrasing options. The old value
+          // "I identify as a protected veteran" did NOT canonicalize and
+          // caused those forms to default to "No" by mistake.
           const veteranOptions = [
             { value: '', label: '— Not specified —' },
-            { value: 'I am not a protected veteran', label: 'Not a protected veteran' },
-            { value: 'I identify as a protected veteran', label: 'Protected veteran' },
+            { value: 'I am not a protected veteran', label: 'No — I am not a protected veteran' },
+            { value: 'I am a protected veteran', label: 'Yes — I am a protected veteran' },
             { value: 'Prefer not to say', label: 'Prefer not to say' },
           ];
           const disabilityOptions = [
             { value: '', label: '— Not specified —' },
-            { value: 'Yes, I have a disability', label: 'Yes, I have a disability' },
-            { value: 'No, I do not have a disability', label: 'No' },
-            {
-              value: "I don't wish to answer",
-              label: 'Prefer not to say',
-            },
+            { value: 'No, I do not have a disability', label: 'No — I do not have a disability' },
+            { value: 'Yes, I have a disability', label: 'Yes — I have a disability' },
+            { value: "I don't wish to answer", label: 'Prefer not to say' },
           ];
           return (
             <>
@@ -735,6 +777,12 @@ export const ProfileEditor: FC = () => {
                 value={demo.transgender}
                 options={yesNo}
                 onChange={(v) => patchDemographics({ transgender: v as YesNoPNTS })}
+              />
+              <Select
+                label="Are you Hispanic / Latino?"
+                value={demo.hispanicLatino}
+                options={yesNo}
+                onChange={(v) => patchDemographics({ hispanicLatino: v as YesNoPNTS })}
               />
               <Field
                 label="Pronouns"
@@ -784,6 +832,24 @@ export const ProfileEditor: FC = () => {
                 placeholder="e.g. $130,000 - $160,000, or Negotiable"
                 value={prefs.salaryExpectation}
                 onChange={(v) => patchBidPreferences({ salaryExpectation: v })}
+              />
+              {/*
+                "Highest degree attained" — free-text so it matches any
+                form's exact wording (Bachelor's Degree, M.B.A., Ph.D.,
+                etc.). The engine's contains-match handles minor
+                differences like "Bachelor's" vs "Bachelor of Science".
+              */}
+              <Field
+                label="Highest degree attained"
+                placeholder="e.g. Bachelor's Degree, M.B.A., Master of Science, Ph.D., …"
+                value={prefs.highestDegree}
+                onChange={(v) => patchBidPreferences({ highestDegree: v })}
+              />
+              <Select
+                label="Are you 18 years of age or older?"
+                value={prefs.over18}
+                options={yesNo}
+                onChange={(v) => patchBidPreferences({ over18: v as YesNoPNTS })}
               />
             </>
           );

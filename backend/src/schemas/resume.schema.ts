@@ -124,6 +124,8 @@ export const ResumeDemographicsSchema = z.object({
   disability: z.string().max(120).default(''),
   /** Self-identified transgender status (separate Greenhouse question on many forms). */
   transgender: z.enum(['yes', 'no', 'prefer-not-to-say', '']).default(''),
+  /** "Are you Hispanic/Latino?" — US EEO standard asks this separately from race. */
+  hispanicLatino: z.enum(['yes', 'no', 'prefer-not-to-say', '']).default(''),
   /** Pronouns the candidate prefers (e.g. "she/her", "they/them"). */
   pronouns: z.string().max(40).default(''),
 });
@@ -140,6 +142,10 @@ export const BidPreferencesSchema = z.object({
   hasRelevantExperience: z.enum(['yes', 'no', 'prefer-not-to-say', '']).default('yes'),
   howDidYouHear: z.string().max(120).default('LinkedIn'),
   salaryExpectation: z.string().max(200).default(''),
+  /** Highest degree attained (e.g. "Bachelor's Degree", "Master of Business Administration (M.B.A.)"). */
+  highestDegree: z.string().max(120).default(''),
+  /** Defaults to 'yes' since most candidates are 18+. */
+  over18: z.enum(['yes', 'no', 'prefer-not-to-say', '']).default('yes'),
 });
 export type BidPreferences = z.infer<typeof BidPreferencesSchema>;
 

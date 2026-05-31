@@ -45,12 +45,12 @@ function handleExtract(
   }
 }
 
-function handleAutofill(
+async function handleAutofill(
   msg: AutofillBidMessage,
   sendResponse: (r: MessageResult<'CS_AUTOFILL_BID'>) => void,
-): void {
+): Promise<void> {
   try {
-    const report = autofillBidForm(msg.payload.data);
+    const report = await autofillBidForm(msg.payload.data);
     log.info('autofill pass 1 complete', {
       filled: report.filled.length,
       totalFields: report.totalFields,
@@ -103,8 +103,10 @@ chrome.runtime.onMessage.addListener(
       return false;
     }
     if (message.type === 'CS_AUTOFILL_BID') {
-      handleAutofill(message, sendResponse as (r: MessageResult<'CS_AUTOFILL_BID'>) => void);
-      return false;
+      // Async — react-select pass awaits menu animations. Return true to
+      // keep the message channel open until sendResponse fires.
+      void handleAutofill(message, sendResponse as (r: MessageResult<'CS_AUTOFILL_BID'>) => void);
+      return true;
     }
     if (message.type === 'CS_FILL_ANSWERS') {
       handleFillAnswers(message, sendResponse as (r: MessageResult<'CS_FILL_ANSWERS'>) => void);

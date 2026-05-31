@@ -70,16 +70,19 @@ const SAMPLE_DATA = {
     veteran: 'no',
     disability: 'no',
     transgender: 'no',
+    hispanicLatino: 'no',
     pronouns: 'he/him',
   },
   // Defaults for the non-EEO custom questions:
   //   prior employment: no, relevant experience: yes,
-  //   how did you hear: Job board
+  //   how did you hear: Job board, degree: Bachelor's, over18: yes
   bidPreferences: {
     priorEmployment: 'no',
     hasRelevantExperience: 'yes',
     howDidYouHear: 'Job board',
     salaryExpectation: '$130,000 - $160,000',
+    highestDegree: "Bachelor's Degree",
+    over18: 'yes',
   },
 };
 
@@ -497,20 +500,17 @@ try {
     ['empty: age → Prefer not to say', formState2.age?.selectedText === 'Prefer not to say'],
     ['empty: gender_verbose → Prefer not to say', formState2.gender_verbose?.selectedText === 'Prefer not to say'],
     ['empty: orientation → Prefer not to say', formState2.orientation?.selectedText === 'Prefer not to say'],
-    // Binary EEO with PNTS option present → engine picks PNTS as the safer
-    // empty-profile default. (When the user sets demographics.transgender,
-    // the matcher fills "No" / "Yes" directly — covered in scenario 1.)
+    // Binary EEO with empty profile → "No" first (matches the user's
+    // explicit sample answers). PNTS is the secondary fallback only when
+    // "No" isn't in the option list.
+    ['empty: transgender → No', formState2.transgender?.selectedText === 'No'],
     [
-      'empty: transgender → "Prefer not to say" or "No"',
-      ['Prefer not to say', 'No'].includes(formState2.transgender?.selectedText ?? ''),
+      'empty: disability_verbose → "No, I do not have a disability…"',
+      /^No, I do not have a disability/i.test(formState2.disability_verbose?.selectedText ?? ''),
     ],
     [
-      'empty: disability_verbose → starts with "No" or "I do not wish"',
-      /^(No|I do not wish)/i.test(formState2.disability_verbose?.selectedText ?? ''),
-    ],
-    [
-      'empty: veteran_verbose → "No, I am not a protected veteran" or "I do not wish"',
-      /(not a protected veteran|I do not wish)/i.test(formState2.veteran_verbose?.selectedText ?? ''),
+      'empty: veteran_verbose → "No, I am not a protected veteran"',
+      formState2.veteran_verbose?.selectedText === 'No, I am not a protected veteran',
     ],
     // Non-EEO labelled selects
     ['empty: work auth → Yes', formState2.canusa_auth?.selectedText === 'Yes'],
@@ -532,11 +532,493 @@ try {
   passed += passed2;
   failed += empties.length - passed2;
 
+  // ===== SCENARIO 3 — react-select v5 (Greenhouse job-boards) =====
+  // Mocks the exact DOM/event shape used by job-boards.greenhouse.io:
+  //   <div class="select-shell">
+  //     <label id="X-label" for="X">…</label>
+  //     <div class="select__control">
+  //       <input id="X" type="text" role="combobox" aria-haspopup="true"
+  //              aria-labelledby="X-label" class="select__input">
+  //       <div class="select__placeholder">Select…</div>
+  //     </div>
+  //   </div>
+  // The mock attaches `mousedown` listeners to controls (open) and options
+  // (commit) — same event model react-select v5 uses. Native <select>
+  // would NOT find these widgets; the engine must use the react-select
+  // pass.
+  console.log('\n--- Scenario 3: react-select v5 (Greenhouse job-boards) ---');
+
+  // Build the page as a function so we can pass the question/option spec
+  // into the iframe in one go.
+  const RS_QUESTIONS = [
+    { id: 'rs_age', label: 'What is your age?', options: ['Under 18', '18-24', '25-34', '35-44', '45-54', '55+', 'Prefer not to say'] },
+    { id: 'rs_gender', label: 'What gender do you identify as?', options: ['Woman', 'Man', 'Non-binary', 'Prefer to self-describe', 'Prefer not to say'] },
+    { id: 'rs_transgender', label: 'Do you identify as transgender?', options: ['Yes', 'No', 'Prefer not to say'] },
+    { id: 'rs_orientation', label: 'What sexual orientation do you identify with?', options: ['Straight / Heterosexual', 'Gay or Lesbian', 'Bisexual', 'Other', 'Prefer not to say'] },
+    // Disability options use the EXACT phrasings from the user's screenshot:
+    // "I do not identify as having a disability" is the No-equivalent and
+    // is the FIRST option (so picker must beat the PNTS that comes after).
+    // This is the canonicalOf("i do not …") → "no" path.
+    { id: 'rs_disability', label: 'Do you identify as having or previously having a disability?', options: ['I do not identify as having a disability', 'I identify as having, or previously having, a disability', 'Prefer not to say'] },
+    // Veteran with simple Yes/No options — mirrors the user's actual
+    // ezCater page. The engine must convert demographics.veteran="no"
+    // (or "I am not a protected veteran") to the "No" option, not "Yes".
+    { id: 'rs_veteran', label: 'Are you a Veteran?', options: ['Yes', 'No'] },
+    { id: 'rs_workauth', label: 'Are you legally authorized to work in either Canada or the USA?', options: ['Yes', 'No'] },
+    { id: 'rs_prior', label: 'Have you previously worked for Tucows or any of its subsidiaries?', options: ['Yes', 'No'] },
+    { id: 'rs_race', label: 'I identify my race as', options: ['Asian', 'Black or African American', 'Hispanic or Latino', 'White', 'Prefer not to say'] },
+    { id: 'rs_consent', label: 'By submitting my application, I consent to the collection of my personal data.', options: ['Yes', 'No'] },
+    // The verbose ezCater sponsorship label — single-word "sponsorship" was
+    // the only stable hook, so the matcher needs to fire on \bsponsorship\b
+    // even when buried in 3 lines of policy boilerplate.
+    { id: 'rs_sponsorship', label: 'Will you, now or in the future, require sponsorship for work authorization, a work visa, or permanent residence from our company, including sponsorship for a change of status (such as F-1 to H-1B) or change of employer? ezCater does not sponsor applicants for work visas or legal permanent residence.', options: ['Yes', 'No'] },
+    // Highest degree dropdown — bidPreferences.highestDegree="Bachelor's Degree"
+    // should pick the matching option via exact match.
+    { id: 'rs_degree', label: 'Degree', options: ["Associate's Degree", "Bachelor's Degree", 'Doctor of Medicine (M.D.)', 'Doctor of Philosophy (Ph.D.)', "Engineer's Degree", 'High School', 'Juris Doctor (J.D.)', 'Master of Business Administration (M.B.A.)'] },
+    // Hispanic / Latino EEO — demographics.hispanicLatino="no" → "No".
+    // "Decline To Self Identify" exercises the new canonicalOf PNTS variant.
+    { id: 'rs_hispanic', label: 'Are you Hispanic/Latino?', options: ['Yes', 'No', 'Decline To Self Identify'] },
+    // "Are you 18 years of age or older?" — bidPreferences.over18="yes" → "Yes".
+    // The matcher must beat the generic EEO/PNTS branch (the word "age" is
+    // in isEEO regex).
+    { id: 'rs_over18', label: 'Are you 18 years of age or older?', options: ['Yes', 'No'] },
+  ];
+
+  // Empty iframe — we'll build the form + mock script via frame.evaluate
+  // below so apostrophes in option labels ("Bachelor's Degree" etc.) don't
+  // need any srcdoc escaping.
+  const RS_HTML = `<!doctype html>
+<html><head><meta charset="utf-8"><style>
+.select-shell { margin: 8px 0; }
+.select__control { border: 1px solid #ccc; border-radius: 6px; padding: 8px; cursor: pointer; position: relative; }
+.select__placeholder, .select__single-value { color: #999; }
+.select__single-value { color: #111; }
+.select__input { border: 0; outline: 0; width: 1px; opacity: 0; }
+.select__menu { border: 1px solid #ccc; border-radius: 6px; margin-top: 4px; background: #fff; }
+.select__option { padding: 6px 10px; cursor: pointer; }
+.select__option:hover { background: #eef; }
+</style></head><body>
+<iframe id="appform" style="width:100%;height:1400px;border:0" srcdoc="
+<!doctype html><html><head><meta charset='utf-8'></head><body>
+<form id='application'></form>
+</body></html>
+"></iframe>
+</body></html>`;
+
+  const page3 = await browser.newPage();
+  page3.on('pageerror', (err) => console.log('  [page3 error]', err.message));
+  await page3.setContent(RS_HTML, { waitUntil: 'load' });
+  await page3.waitForSelector('iframe#appform');
+  const ih3 = await page3.$('iframe#appform');
+  const frame3 = await ih3.contentFrame();
+  await frame3.waitForSelector('#application');
+
+  // Build the form inside the iframe — apostrophes in option labels travel
+  // through as a JSON arg, no string-escape gymnastics needed.
+  await frame3.evaluate((questions) => {
+    const form = document.getElementById('application');
+    for (const q of questions) {
+      const shell = document.createElement('div');
+      shell.className = 'select-shell';
+      shell.dataset.qid = q.id;
+      shell.innerHTML = `
+        <label id="${q.id}-label" for="${q.id}">${q.label}<span aria-hidden="true"> *</span></label>
+        <div class="select__control">
+          <div class="select__value-container">
+            <div class="select__placeholder">Select...</div>
+            <div class="select__input-container">
+              <input class="select__input" id="${q.id}" type="text"
+                     role="combobox" aria-haspopup="true"
+                     aria-labelledby="${q.id}-label" autocomplete="off" value="">
+            </div>
+          </div>
+          <div class="select__indicators">
+            <button type="button" class="icon-button">▾</button>
+          </div>
+        </div>
+      `;
+      form.appendChild(shell);
+    }
+  }, RS_QUESTIONS);
+
+  // Install the react-select v5 emulator. Same options:
+  //   mousedown on .select__control opens .select__menu (mounted inside .select-shell)
+  //   mousedown on .select__option commits the value and closes the menu
+  await frame3.evaluate((questions) => {
+    const optionsByQid = Object.fromEntries(questions.map((q) => [q.id, q.options]));
+    function closeAllMenus() {
+      document.querySelectorAll('.select__menu').forEach((m) => m.remove());
+    }
+    function commit(shell, optionText) {
+      closeAllMenus();
+      const placeholder = shell.querySelector('.select__placeholder');
+      if (placeholder) placeholder.remove();
+      let sv = shell.querySelector('.select__single-value');
+      if (!sv) {
+        sv = document.createElement('div');
+        sv.className = 'select__single-value';
+        const valueContainer = shell.querySelector('.select__value-container');
+        valueContainer.insertBefore(sv, valueContainer.firstChild);
+      }
+      sv.textContent = optionText;
+      const input = shell.querySelector('.select__input');
+      if (input) {
+        input.value = optionText;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }
+    document.addEventListener(
+      'mousedown',
+      (e) => {
+        const optionEl = e.target.closest('.select__option');
+        if (optionEl) {
+          const shell = optionEl.closest('.select-shell');
+          commit(shell, optionEl.textContent.trim());
+          return;
+        }
+        const control = e.target.closest('.select__control');
+        if (!control) {
+          closeAllMenus();
+          return;
+        }
+        const shell = control.closest('.select-shell');
+        const qid = shell.dataset.qid;
+        closeAllMenus();
+        const menu = document.createElement('div');
+        menu.className = 'select__menu';
+        const list = document.createElement('div');
+        list.className = 'select__menu-list';
+        list.setAttribute('role', 'listbox');
+        optionsByQid[qid].forEach((text, i) => {
+          const opt = document.createElement('div');
+          opt.className = 'select__option';
+          opt.setAttribute('role', 'option');
+          opt.id = `react-select-${qid}-option-${i}`;
+          opt.textContent = text;
+          list.appendChild(opt);
+        });
+        menu.appendChild(list);
+        shell.appendChild(menu);
+      },
+      true,
+    );
+  }, RS_QUESTIONS);
+
+  await frame3.evaluate((src) => {
+    const s = document.createElement('script');
+    s.textContent = src;
+    document.head.appendChild(s);
+  }, engineSrc);
+
+  // Use the same SAMPLE_DATA so demographics + bidPreferences drive the selects.
+  const result3 = await frame3.evaluate(
+    (d) => window.__autofillEngine.autofillBidForm(d),
+    SAMPLE_DATA,
+  );
+  const rsState = await frame3.evaluate(() => {
+    const v = (qid) => {
+      const shell = document.querySelector(`.select-shell[data-qid="${qid}"]`);
+      if (!shell) return null;
+      const sv = shell.querySelector('.select__single-value');
+      return sv ? sv.textContent.trim() : '';
+    };
+    return {
+      age: v('rs_age'),
+      gender: v('rs_gender'),
+      transgender: v('rs_transgender'),
+      orientation: v('rs_orientation'),
+      disability: v('rs_disability'),
+      veteran: v('rs_veteran'),
+      workauth: v('rs_workauth'),
+      prior: v('rs_prior'),
+      race: v('rs_race'),
+      consent: v('rs_consent'),
+      sponsorship: v('rs_sponsorship'),
+      degree: v('rs_degree'),
+      hispanic: v('rs_hispanic'),
+      over18: v('rs_over18'),
+    };
+  });
+  console.log('react-select state:', JSON.stringify(rsState, null, 2));
+  console.log('Engine report (scenario 3):', JSON.stringify(result3, null, 2));
+
+  const rsAsserts = [
+    // Non-binary EEO with no saved demographic → "Prefer not to say"
+    // (no reasonable population default for age / orientation).
+    ['rs: age → Prefer not to say', rsState.age === 'Prefer not to say'],
+    ['rs: orientation → Prefer not to say', rsState.orientation === 'Prefer not to say'],
+    // Saved demographics drive the option pick
+    ['rs: gender → Man (from "Male" via synonym)', rsState.gender === 'Man'],
+    ['rs: race → White', rsState.race === 'White'],
+    // demographics.disability="No, I do not have a disability" → option
+    // "I do not identify as having a disability" via canonicalOf("no") path.
+    // Tricky case: option 2 ALSO starts with "I identify" and option 3 is
+    // PNTS — the engine must pick option 1, not option 3.
+    [
+      'rs: disability → "I do not identify as having a disability"',
+      rsState.disability === 'I do not identify as having a disability',
+    ],
+    // Simple Yes/No widget: demographics.veteran="no" → canonicalOf returns
+    // "no" → matches "No" option. Critical: must NOT pick "Yes".
+    ['rs: veteran (simple Yes/No) → No', rsState.veteran === 'No'],
+    ['rs: transgender → No', rsState.transgender === 'No'],
+    // Label-based fallback
+    ['rs: workauth → Yes', rsState.workauth === 'Yes'],
+    ['rs: prior employment → No', rsState.prior === 'No'],
+    ['rs: consent → Yes', rsState.consent === 'Yes'],
+    // ezCater-style verbose sponsorship label — \bsponsorship\b matcher hit
+    // → demographics.requiresSponsorshipUS="no" → "No".
+    ['rs: sponsorship → No (verbose ezCater label)', rsState.sponsorship === 'No'],
+    // New: Degree dropdown — bidPreferences.highestDegree="Bachelor's Degree"
+    // matches the option of the same name exactly.
+    ["rs: degree → Bachelor's Degree", rsState.degree === "Bachelor's Degree"],
+    // New: Hispanic/Latino — demographics.hispanicLatino="no" → "No".
+    ['rs: hispanic-latino → No', rsState.hispanic === 'No'],
+    // New: Are you 18 years of age or older? — over18="yes" → "Yes". The
+    // age matcher must beat the generic EEO PNTS branch.
+    ['rs: over-18 → Yes', rsState.over18 === 'Yes'],
+    // No widgets queued for LLM
+    [
+      'rs: NO selects in LLM queue',
+      result3.pendingQuestions.every((q) => q.fieldKind !== 'select'),
+    ],
+  ];
+  let passed3 = 0;
+  for (const [msg, ok] of rsAsserts) {
+    console.log(`  ${ok ? '✓' : '✗'} ${msg}`);
+    if (ok) passed3 += 1;
+  }
+  totalRun += rsAsserts.length;
+  passed += passed3;
+  failed += rsAsserts.length - passed3;
+
+  // ===== SCENARIO 4 — native radio groups + Yes/No button pairs =====
+  // Covers the four screenshot shapes the user just reported:
+  //   - Yes/No "buttons" for work auth + sponsorship (rendered as
+  //     <button type="button"> pairs inside a labeled wrapper)
+  //   - Gender / Race / Veteran as native <input type="radio"> groups
+  //     where the GROUP label lives on a heading or fieldset legend above
+  //     (not on each individual radio)
+  console.log('\n--- Scenario 4: radio groups + Yes/No button pairs ---');
+
+  const RADIO_HTML = `<!doctype html>
+<html><head><meta charset="utf-8"><style>
+.group { margin: 12px 0; padding: 8px; border: 1px solid #eee; }
+.group-label { font-weight: bold; margin-bottom: 6px; }
+.button-row button { padding: 6px 18px; margin-right: 6px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
+.button-row button.selected { background: #def; border-color: #69c; }
+label { display: block; margin: 4px 0; }
+</style></head><body>
+<iframe id="appform" style="width:100%;height:1200px;border:0" srcdoc='
+<!doctype html><html><head><meta charset="utf-8"><style>
+.group { margin: 12px 0; padding: 8px; border: 1px solid #eee; }
+.group-label { font-weight: bold; margin-bottom: 6px; }
+.button-row button { padding: 6px 18px; margin-right: 6px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
+.button-row button.selected { background: #def; border-color: #69c; }
+label { display: block; margin: 4px 0; }
+</style></head><body>
+<form id="application">
+  <!-- Native radio group: Gender -->
+  <fieldset class="group">
+    <legend>Gender</legend>
+    <p style="color:#888">Input gender</p>
+    <label><input type="radio" name="gender" value="male"> Male</label>
+    <label><input type="radio" name="gender" value="female"> Female</label>
+    <label><input type="radio" name="gender" value="decline"> Decline to self-identify</label>
+  </fieldset>
+
+  <!-- Native radio group: Race (with parenthetical suffixes) -->
+  <fieldset class="group">
+    <legend>Race / Ethnicity</legend>
+    <label><input type="radio" name="race" value="hispanic"> Hispanic or Latino</label>
+    <label><input type="radio" name="race" value="white"> White (Not Hispanic or Latino)</label>
+    <label><input type="radio" name="race" value="black"> Black or African American (Not Hispanic or Latino)</label>
+    <label><input type="radio" name="race" value="nhpi"> Native Hawaiian or Other Pacific Islander (Not Hispanic or Latino)</label>
+    <label><input type="radio" name="race" value="asian"> Asian (Not Hispanic or Latino)</label>
+    <label><input type="radio" name="race" value="aian"> American Indian or Alaska Native (Not Hispanic or Latino)</label>
+    <label><input type="radio" name="race" value="multi"> Two or More Races (Not Hispanic or Latino)</label>
+    <label><input type="radio" name="race" value="decline"> Decline to self-identify</label>
+  </fieldset>
+
+  <!-- Native radio group: Veteran Status (full ezCater phrasing) -->
+  <fieldset class="group">
+    <legend>Veteran Status</legend>
+    <label><input type="radio" name="veteran_status" value="protected"> I identify as one or more of the classifications of protected veteran listed above</label>
+    <label><input type="radio" name="veteran_status" value="not_protected"> I am not a protected veteran</label>
+    <label><input type="radio" name="veteran_status" value="decline"> I decline to self-identify for protected veteran status</label>
+  </fieldset>
+
+  <!-- div[role="button"] Yes/No pair — common React custom pattern. -->
+  <div class="group" id="custom_consent_group">
+    <p class="group-label">By submitting my application, I consent to the processing of my personal data.</p>
+    <div class="button-row">
+      <div role="button" tabindex="0" class="custom-btn">Yes</div>
+      <div role="button" tabindex="0" class="custom-btn">No</div>
+    </div>
+  </div>
+
+  <!-- Label-wrapped hidden radios styled as buttons (HeadlessUI pattern). -->
+  <div class="group" id="experience_group">
+    <p class="group-label">Do you have experience working with distributed systems?</p>
+    <div class="button-row">
+      <label class="pill-btn"><input type="radio" name="exp_dist" value="yes" style="position:absolute;opacity:0">Yes</label>
+      <label class="pill-btn"><input type="radio" name="exp_dist" value="no" style="position:absolute;opacity:0">No</label>
+    </div>
+  </div>
+
+  <!-- Ashby-style _fieldEntry pattern: <button> with NO type attribute
+       (HTML defaults .type to "submit" but the literal attribute is null),
+       sibling label, hidden checkbox holding state. -->
+  <div class="_fieldEntry" data-fieldpath="auth_ashby">
+    <label class="_heading">Are you currently authorized to work lawfully in the United States?</label>
+    <div class="_container button-row">
+      <button class="_option">Yes</button>
+      <button class="_option">No</button>
+      <input type="checkbox" name="auth_ashby_internal" aria-hidden="true" style="display:none">
+    </div>
+  </div>
+
+  <div class="_fieldEntry" data-fieldpath="sponsorship_ashby">
+    <label class="_heading">Will you now or in the future require employment-based immigration sponsorship to work for our company (for example, H-1B, TN, L-1, E-3, etc.)?</label>
+    <p style="color:#666;font-style:italic">If you are working pursuant to F-1 OPT/STEM OPT/CPT and planning to ask for employment sponsorship in the future, you should answer Yes.</p>
+    <div class="_container button-row">
+      <button class="_option">Yes</button>
+      <button class="_option">No</button>
+      <input type="checkbox" name="sponsorship_ashby_internal" aria-hidden="true" style="display:none">
+    </div>
+  </div>
+</form>
+<!-- Mock click handler injected via frame.evaluate after load to dodge
+     srcdoc-vs-JS quote escaping issues. -->
+</body></html>
+'></iframe>
+</body></html>`;
+
+  const page4 = await browser.newPage();
+  page4.on('pageerror', (err) => console.log('  [page4 error]', err.message));
+  await page4.setContent(RADIO_HTML, { waitUntil: 'load' });
+  await page4.waitForSelector('iframe#appform');
+  const ih4 = await page4.$('iframe#appform');
+  const frame4 = await ih4.contentFrame();
+  await frame4.waitForSelector('#application');
+  // Mock click handler: bind directly on each candidate so synthetic
+  // events from the engine reliably trigger it. Use `Array.from(NodeList)`
+  // to capture a stable handle to siblings in the closure.
+  await frame4.evaluate(() => {
+    document.querySelectorAll('.button-row').forEach((row) => {
+      const allBtns = Array.from(row.querySelectorAll('button, [role="button"]'));
+      allBtns.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          allBtns.forEach((b) => b.classList.remove('selected'));
+          btn.classList.add('selected');
+        });
+      });
+    });
+  });
+  await frame4.evaluate((src) => {
+    const s = document.createElement('script');
+    s.textContent = src;
+    document.head.appendChild(s);
+  }, engineSrc);
+
+  const result4 = await frame4.evaluate(
+    (d) => window.__autofillEngine.autofillBidForm(d),
+    SAMPLE_DATA,
+  );
+  const radioState = await frame4.evaluate(() => {
+    const checked = (name) => {
+      const els = document.querySelectorAll(`input[type="radio"][name="${name}"]`);
+      for (const el of els) if (el.checked) return el.value;
+      return '';
+    };
+    const buttonSelected = (labelMatch) => {
+      const groups = Array.from(document.querySelectorAll('.group'));
+      for (const g of groups) {
+        const text = g.textContent.toLowerCase();
+        if (text.includes(labelMatch)) {
+          const sel = g.querySelector('button.selected, [role="button"].selected');
+          return sel ? sel.textContent.trim() : '';
+        }
+      }
+      return '';
+    };
+    // Read by fieldEntry data-fieldpath (Ashby-style) — there are two
+    // "authorized to work lawfully" labels in this scenario, so we need
+    // to scope by the fieldEntry wrapper to disambiguate.
+    const fieldEntrySelected = (pathSuffix) => {
+      const fe = document.querySelector(`._fieldEntry[data-fieldpath$="${pathSuffix}"]`);
+      if (!fe) return '';
+      const sel = fe.querySelector('button.selected, [role="button"].selected');
+      return sel ? sel.textContent.trim() : '';
+    };
+    return {
+      workauth: buttonSelected('authorized to work lawfully'),
+      sponsorship: buttonSelected('immigration sponsorship'),
+      gender: checked('gender'),
+      race: checked('race'),
+      veteran: checked('veteran_status'),
+      consent: buttonSelected('by submitting my application'),
+      exp_dist: checked('exp_dist'),
+      // Ashby-style pattern
+      ashby_workauth: fieldEntrySelected('auth_ashby'),
+      ashby_sponsorship: fieldEntrySelected('sponsorship_ashby'),
+    };
+  });
+  console.log('radio/button state:', JSON.stringify(radioState, null, 2));
+  console.log('Engine report (scenario 4):', JSON.stringify(result4, null, 2));
+
+  const radioAsserts = [
+    // Native radios — group label from fieldset legend drives classification
+    [
+      'scenario 4: gender radio → male (demographics.gender="Male")',
+      radioState.gender === 'male',
+    ],
+    [
+      'scenario 4: race radio → white (contains-match on "White (Not Hispanic or Latino)")',
+      radioState.race === 'white',
+    ],
+    [
+      'scenario 4: veteran radio → not_protected ("I am not a protected veteran")',
+      radioState.veteran === 'not_protected',
+    ],
+    // div[role="button"] pair — broader detector should still find it.
+    ['scenario 4: consent (div[role=button]) → Yes', radioState.consent === 'Yes'],
+    // Label-wrapped hidden radio styled as a pill button — native radio
+    // pass should find these even though the radio is opacity:0.
+    [
+      'scenario 4: label-wrapped hidden radio → yes',
+      radioState.exp_dist === 'yes',
+    ],
+    // Ashby-style _fieldEntry — <button> with no type attribute (HTML
+    // defaults .type to "submit"), label as sibling, hidden checkbox.
+    [
+      'scenario 4: Ashby work-auth (button, no type attr) → Yes',
+      radioState.ashby_workauth === 'Yes',
+    ],
+    [
+      'scenario 4: Ashby sponsorship (button, no type attr) → No',
+      radioState.ashby_sponsorship === 'No',
+    ],
+    // No selects went to LLM
+    [
+      'scenario 4: NO selects in LLM queue',
+      result4.pendingQuestions.every((q) => q.fieldKind !== 'select'),
+    ],
+  ];
+  let passed4 = 0;
+  for (const [msg, ok] of radioAsserts) {
+    console.log(`  ${ok ? '✓' : '✗'} ${msg}`);
+    if (ok) passed4 += 1;
+  }
+  totalRun += radioAsserts.length;
+  passed += passed4;
+  failed += radioAsserts.length - passed4;
+
   if (failed > 0) {
     console.error(`\nFAIL: ${failed}/${totalRun} assertions failed`);
     exitCode = 2;
   } else {
-    console.log(`\nOK: ${passed}/${totalRun} assertions passed (across 2 scenarios)`);
+    console.log(`\nOK: ${passed}/${totalRun} assertions passed (across 4 scenarios)`);
   }
 } catch (err) {
   console.error('FAIL: exception during test:', err);
