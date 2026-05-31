@@ -6,7 +6,7 @@
  */
 import type { ExtractedJobDescription } from './jd';
 import type { ProposalJson, ProposalTone } from './proposal';
-import type { MasterProfile, ResumeDemographics, ResumeJson } from './resume';
+import type { BidPreferences, MasterProfile, ResumeDemographics, ResumeJson } from './resume';
 
 export type MessageType =
   | 'CS_EXTRACT_JD'
@@ -55,6 +55,8 @@ export interface BidPayload {
   };
   /** Optional — omitted when the candidate hasn't filled them in yet. */
   demographics?: ResumeDemographics;
+  /** Optional — defaults for common Greenhouse custom-question selects. */
+  bidPreferences?: BidPreferences;
 }
 
 /** One detected field that was filled (or attempted) by the autofill engine. */
@@ -76,10 +78,30 @@ export interface AutofillFilled {
 export interface AutofillPendingQuestion {
   /** Index into the content script's field enumeration so the answer can be written back. */
   fieldIndex: number;
+  /**
+   * Frame this question came from. Set by the popup-side aggregator after
+   * the fan-out — content scripts don't know their own frameId. Absent until
+   * the aggregator stamps it. The second-pass CS_FILL_ANSWERS uses this to
+   * route each answer back to the correct frame so we never write into a
+   * sibling iframe's form.
+   */
+  frameId?: number;
   /** The question text (the field's label). */
   question: string;
   /** Short hint for the UI. */
   hint: string;
+  /**
+   * Tag of the underlying input element. Tells the LLM how to size the
+   * answer and lets the backend force exact-match against `options` for
+   * selects. Defaults to "textarea" when unset (legacy compatibility).
+   */
+  fieldKind?: 'input' | 'textarea' | 'select';
+  /**
+   * Valid choices for `fieldKind: 'select'` fields. The LLM's reply MUST be
+   * one of these strings verbatim — the popup writes it back via the
+   * select's text-match path, so any mismatch leaves the field blank.
+   */
+  options?: string[];
 }
 
 export interface AutofillReport {
@@ -98,6 +120,8 @@ export interface AutofillReport {
 /** One LLM-answered question to write back into a specific field. */
 export interface AnsweredQuestion {
   fieldIndex: number;
+  /** Mirrors the originating pending question's frameId so the popup can dispatch per-frame. */
+  frameId?: number;
   answer: string;
 }
 

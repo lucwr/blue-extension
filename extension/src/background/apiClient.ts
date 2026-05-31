@@ -165,7 +165,15 @@ export const api = {
     const llmQuestions = input.questions.map((q, i) => {
       const id = `q${i + 1}`;
       idToFieldIndex.set(id, q.fieldIndex);
-      return { id, question: q.question };
+      return {
+        id,
+        question: q.question,
+        // Default to 'textarea' so old payloads still work; new ones tag
+        // every question. The backend uses this to size + constrain the
+        // answer (selects must echo an option verbatim).
+        fieldKind: q.fieldKind ?? 'textarea',
+        ...(q.options && q.options.length > 0 ? { options: q.options } : {}),
+      };
     });
     const result = await request<{ answers: Array<{ id: string; text: string }> }>(
       '/api/answer-questions',

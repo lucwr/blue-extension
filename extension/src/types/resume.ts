@@ -103,7 +103,26 @@ export interface ResumeDemographics {
   race: string;
   veteran: string;
   disability: string;
+  /** Common Greenhouse follow-up: "Do you identify as transgender?" */
+  transgender: YesNoPNTS;
   pronouns: string;
+}
+
+/**
+ * User-configurable defaults for bid form questions that don't fit the
+ * EEO bucket — prior employment, generic "do you have experience?",
+ * source attribution, salary. These let the auto-fill engine answer
+ * deterministically without the LLM round trip for common patterns.
+ */
+export interface BidPreferences {
+  /** "Have you previously worked for <company>?" — defaults to 'no'. */
+  priorEmployment: YesNoPNTS;
+  /** "Do you have experience with X?" — defaults to 'yes' since the candidate applied. */
+  hasRelevantExperience: YesNoPNTS;
+  /** "How did you hear about this opportunity?" — free-text, used for SELECT match-by-contains too. */
+  howDidYouHear: string;
+  /** "What are your salary expectations?" — free-text, often a range. */
+  salaryExpectation: string;
 }
 
 /**
@@ -122,6 +141,8 @@ export interface MasterProfile {
   extras: ResumeExtra[];
   /** Optional — older profiles without demographics still load. */
   demographics?: ResumeDemographics;
+  /** Optional — defaults for common bid-form questions. */
+  bidPreferences?: BidPreferences;
 }
 
 export const EMPTY_DEMOGRAPHICS: ResumeDemographics = {
@@ -131,7 +152,15 @@ export const EMPTY_DEMOGRAPHICS: ResumeDemographics = {
   race: '',
   veteran: '',
   disability: '',
+  transgender: '',
   pronouns: '',
+};
+
+export const EMPTY_BID_PREFERENCES: BidPreferences = {
+  priorEmployment: 'no',
+  hasRelevantExperience: 'yes',
+  howDidYouHear: 'LinkedIn',
+  salaryExpectation: '',
 };
 
 export const RESUME_SCHEMA_VERSION = '1.0.0';

@@ -4,6 +4,7 @@
  * autocomplete and refactor-safety.
  */
 import type { ExtractedJobDescription } from '@/types/jd';
+import type { AutofillReport } from '@/types/messages';
 import type { ProposalJson } from '@/types/proposal';
 import type { MasterProfile, ResumeJson } from '@/types/resume';
 import { StorageKeys, type StorageKey } from './keys';
@@ -28,6 +29,21 @@ export interface HistoryEntry {
   proposal: ProposalJson | null;
 }
 
+/**
+ * Snapshot of the popup's working state for a single job. Persisted so the
+ * popup can rehydrate after being closed (clicking outside, opening another
+ * window, etc.) without losing the generated resume/proposal. Cleared only
+ * by an explicit Refresh action in the popup UI.
+ */
+export interface PopupSession {
+  jd: ExtractedJobDescription | null;
+  resume: ResumeJson | null;
+  proposal: ProposalJson | null;
+  bidReport: AutofillReport | null;
+  /** ISO timestamp the session was last written. Used to invalidate stale snapshots. */
+  savedAt: string;
+}
+
 interface StorageShape {
   [StorageKeys.Settings]: Settings;
   [StorageKeys.MasterProfile]: MasterProfile;
@@ -35,6 +51,7 @@ interface StorageShape {
   [StorageKeys.ProposalTemplates]: { id: string; name: string; body: string }[];
   [StorageKeys.History]: HistoryEntry[];
   [StorageKeys.AuthToken]: string;
+  [StorageKeys.PopupSession]: PopupSession;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -98,4 +115,16 @@ export async function getAuthToken(): Promise<string | undefined> {
 
 export async function setAuthToken(token: string): Promise<void> {
   await setValue(StorageKeys.AuthToken, token);
+}
+
+export async function getPopupSession(): Promise<PopupSession | undefined> {
+  return getValue(StorageKeys.PopupSession);
+}
+
+export async function setPopupSession(session: PopupSession): Promise<void> {
+  await setValue(StorageKeys.PopupSession, session);
+}
+
+export async function clearPopupSession(): Promise<void> {
+  await removeValue(StorageKeys.PopupSession);
 }

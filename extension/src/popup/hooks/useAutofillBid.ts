@@ -117,6 +117,7 @@ export function useAutofillBid(): () => Promise<void> {
           }
         : {}),
       ...(profile.demographics ? { demographics: profile.demographics } : {}),
+      ...(profile.bidPreferences ? { bidPreferences: profile.bidPreferences } : {}),
     };
 
     try {
@@ -155,11 +156,39 @@ export function useAutofillBid(): () => Promise<void> {
         });
         if (answerResult.ok && answerResult.data.answers.length > 0) {
           setStep('auto-filling');
-          const writeResult = await sendToTab(tabId, {
-            type: 'CS_FILL_ANSWERS',
-            payload: { answers: answerResult.data.answers },
-          });
-          if (writeResult.ok) {
+          // Each answer needs to go back to the frame its question came
+          // from — otherwise we'd write into a sibling iframe's textarea
+          // by index collision. The aggregator tagged every pending
+          // question with its originating frameId; mirror that onto the
+          // answer and dispatch CS_FILL_ANSWERS per-frame in parallel.
+          const fidByIndex = new Map<number, number>();
+          for (const q of report.pendingQuestions) {
+            if (typeof q.frameId === 'number') fidByIndex.set(q.fieldIndex, q.frameId);
+          }
+          const answersByFrame = new Map<number, typeof answerResult.data.answers>();
+          for (const a of answerResult.data.answers) {
+            const fid = fidByIndex.get(a.fieldIndex) ?? 0;
+            const tagged = { ...a, frameId: fid };
+            const bucket = answersByFrame.get(fid) ?? [];
+            bucket.push(tagged);
+            answersByFrame.set(fid, bucket);
+          }
+
+          const writeResults = await Promise.all(
+            Array.from(answersByFrame.entries()).map(async ([fid, answers]) => {
+              return sendToTab(
+                tabId,
+                {
+                  type: 'CS_FILL_ANSWERS',
+                  payload: { answers },
+                },
+                { frameId: fid },
+              );
+            }),
+          );
+
+          const allOk = writeResults.every((r) => r.ok);
+          if (allOk) {
             // Reflect the answered questions in the report so the UI can
             // show them as filled rather than pending.
             const answeredIndices = new Set(

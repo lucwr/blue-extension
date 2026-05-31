@@ -55,7 +55,12 @@ type Category =
   | 'race'
   | 'veteran-status'
   | 'disability-status'
+  | 'transgender'
   | 'pronouns'
+  | 'prior-employment'
+  | 'relevant-experience'
+  | 'how-did-you-hear'
+  | 'salary-expectation'
   | 'unknown';
 
 interface ClassifiedField {
@@ -122,7 +127,35 @@ const MATCHERS: ReadonlyArray<{ category: Category; re: RegExp; weight: number }
     re: /\b(disability|disabled|disab(ility|led)[-_ ]?status)\b/,
     weight: 100,
   },
+  {
+    category: 'transgender',
+    re: /\b(transgender|trans[-_ ]?(identity|gender)?|identify[-_ ]?as[-_ ]?trans)\b/,
+    weight: 130,
+  },
   { category: 'pronouns', re: /\bpronouns?\b/, weight: 100 },
+
+  // Common-but-non-EEO custom questions on Greenhouse / Lever / Workable.
+  // Deterministic so the user's bidPreferences answer wins without an LLM hop.
+  {
+    category: 'prior-employment',
+    re: /\b(previously[-_ ]?worked[-_ ]?(for|at|with)|ever[-_ ]?worked[-_ ]?(for|at)|formerly[-_ ]?(employed|worked)|prior[-_ ]?employment|worked[-_ ]?(for|at)[-_ ]?(us|this[-_ ]?company))\b/,
+    weight: 120,
+  },
+  {
+    category: 'relevant-experience',
+    re: /\b(do[-_ ]?you[-_ ]?have[-_ ]?(any[-_ ]?|relevant[-_ ]?|prior[-_ ]?)?experience[-_ ]?(in|with)?|have[-_ ]?you[-_ ]?worked[-_ ]?(in|with)|are[-_ ]?you[-_ ]?experienced)\b/,
+    weight: 95,
+  },
+  {
+    category: 'how-did-you-hear',
+    re: /\b(how[-_ ]?did[-_ ]?you[-_ ]?hear|how[-_ ]?did[-_ ]?you[-_ ]?find|where[-_ ]?did[-_ ]?you[-_ ]?(hear|find)|source[-_ ]?of[-_ ]?application|referral[-_ ]?source)\b/,
+    weight: 120,
+  },
+  {
+    category: 'salary-expectation',
+    re: /\b(salary[-_ ]?(expectation|requirement|range)|compensation[-_ ]?(expectation|requirement)|expected[-_ ]?(salary|compensation|pay)|desired[-_ ]?(salary|compensation|pay)|pay[-_ ]?expectation|what[-_ ]?(are[-_ ]?your[-_ ]?)?(pay|salary))\b/,
+    weight: 110,
+  },
 
   // Years of experience
   {
@@ -174,14 +207,34 @@ const MATCHERS: ReadonlyArray<{ category: Category; re: RegExp; weight: number }
 
 // Question-like indicators on free-text fields — these stay UNMATCHED and
 // flow to the LLM Q&A round trip.
-const QUESTION_RE = /\?$|^(why|how|what|describe|tell|explain|provide|share|do you|are you|have you|would you|could you|when|where)\b/i;
+const QUESTION_RE = /\?$|\?\s*\*?\s*$|^(why|how|what|describe|tell|explain|provide|share|do you|are you|have you|would you|could you|when|where|please|by submitting|i (?:consent|agree)|consent|acknowledge)\b/i;
 
 function isQuestionLike(labelText: string): boolean {
   const t = labelText.trim().toLowerCase();
   if (!t) return false;
-  if (t.length > 12 && QUESTION_RE.test(t)) return true;
   if (t.includes('?')) return true;
+  if (t.length > 10 && QUESTION_RE.test(t)) return true;
   return false;
+}
+
+/**
+ * Pull the meaningful option texts off a SELECT for the LLM to choose from.
+ * Strips placeholder/empty options ("Select…", "-- choose --") so the LLM
+ * can't pick a no-op value that the writer would reject anyway.
+ */
+function getSelectOptionTexts(el: HTMLSelectElement): string[] {
+  const out: string[] = [];
+  for (const opt of Array.from(el.options)) {
+    if (opt.disabled) continue;
+    const text = (opt.textContent ?? '').trim();
+    if (!text) continue;
+    // Skip leading placeholder rows. Greenhouse / Workable / Lever all use
+    // either an empty-value placeholder OR a "Select…" / "-- choose --"
+    // first option.
+    if (!opt.value && /^(select|choose|please|--|—)/i.test(text)) continue;
+    out.push(text);
+  }
+  return out;
 }
 
 // ---------- DOM helpers ----------
@@ -329,8 +382,10 @@ function classifyField(el: EditableField): ClassifiedField {
     best = { ...best, category: 'website', score: 80 };
   }
 
-  // If still unknown and it's a textarea: flag as question for LLM Q&A.
-  if (best.category === 'unknown' && el.tagName === 'TEXTAREA') {
+  // For ANY unknown field (textarea, input, select), flag whether the label
+  // looks like a real question. `queueAsLLMQuestion` then decides whether
+  // to forward it to the LLM based on the field kind + this flag.
+  if (best.category === 'unknown') {
     best = { ...best, questionLike: isQuestionLike(labelText) };
   }
 
@@ -418,8 +473,20 @@ function valueForCategory(category: Category, data: BidPayload): string {
       return data.demographics?.veteran ?? '';
     case 'disability-status':
       return data.demographics?.disability ?? '';
+    case 'transgender':
+      return yesNoLabel(data.demographics?.transgender ?? '');
     case 'pronouns':
       return data.demographics?.pronouns ?? '';
+    // Bid preferences — user-configurable defaults so common Greenhouse
+    // custom questions never need an LLM round trip.
+    case 'prior-employment':
+      return yesNoLabel(data.bidPreferences?.priorEmployment ?? 'no');
+    case 'relevant-experience':
+      return yesNoLabel(data.bidPreferences?.hasRelevantExperience ?? 'yes');
+    case 'how-did-you-hear':
+      return data.bidPreferences?.howDidYouHear ?? '';
+    case 'salary-expectation':
+      return data.bidPreferences?.salaryExpectation ?? '';
     case 'unknown':
     default:
       return '';
@@ -444,35 +511,133 @@ function setNativeInputValue(el: HTMLInputElement | HTMLTextAreaElement, value: 
 }
 
 /**
+ * Synonym groups for common Yes/No/gender/decline answers. The setSelectValue
+ * matcher expands the input through this table so a profile value of "no"
+ * still matches options like "No, I have not", "Not at this time", or "N",
+ * and "Male" matches "Man" / "M".
+ *
+ * Each entry: canonical form → set of accepted variants (lowercase, no
+ * trailing punctuation). The matcher fires when the input AND an option
+ * each map to the same canonical form.
+ */
+const OPTION_SYNONYMS: ReadonlyArray<{ canonical: string; variants: RegExp[] }> = [
+  {
+    canonical: 'yes',
+    variants: [
+      /^y$/,
+      /^yes\b/,
+      /^true$/,
+      /^affirmative$/,
+      /^i (am|do|have|will|consent|agree)\b/,
+      /^yes,?\s/,
+    ],
+  },
+  {
+    canonical: 'no',
+    variants: [
+      /^n$/,
+      /^no\b/,
+      /^false$/,
+      /^negative$/,
+      /^i (do not|don't|have not|haven't|am not|will not|won't)\b/,
+      /^no,?\s/,
+      /^not (at this time|currently|yet)\b/,
+    ],
+  },
+  {
+    canonical: 'prefer-not-to-say',
+    variants: [
+      /^prefer (not|to not)\b/,
+      /^decline (to )?answer\b/,
+      /^i (don't|do not) wish to answer\b/,
+      /^choose not\b/,
+      /^rather not\b/,
+    ],
+  },
+  {
+    canonical: 'male',
+    variants: [/^m$/, /^male$/, /^man$/, /^cisgender male$/],
+  },
+  {
+    canonical: 'female',
+    variants: [/^f$/, /^w$/, /^female$/, /^woman$/, /^cisgender female$/],
+  },
+];
+
+function normalizeForMatch(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .replace(/[‘’]/g, "'")
+    .replace(/[.,;:!?*]+$/, '')
+    .replace(/\s+/g, ' ');
+}
+
+function canonicalOf(s: string): string | null {
+  const norm = normalizeForMatch(s);
+  for (const grp of OPTION_SYNONYMS) {
+    for (const re of grp.variants) {
+      if (re.test(norm)) return grp.canonical;
+    }
+  }
+  return null;
+}
+
+/**
  * Pick the option whose text best matches `value` and set the select's
- * selectedIndex. Match is case-insensitive substring / equality, with
- * yes/no/prefer-not-to-say special-cased to find the closest option.
+ * selectedIndex. Match ladder, broadest first to most permissive last:
+ *   1. Exact normalized text equality
+ *   2. Exact normalized value attribute equality
+ *   3. Synonym-canonical equality — covers "Yes"↔"Yes, I am", "Male"↔"Man",
+ *      "no"↔"No, I have not", "prefer not to say"↔"Decline to answer", etc.
+ *   4. Option text contains the input value
+ *   5. Input value contains the option text (handles "White" → "White
+ *      (Not Hispanic or Latino)" being authoritative)
+ *   6. Token prefix match — last resort for partial matches.
+ *
+ * Disabled options and empty-value placeholders are skipped at every step.
  */
 function setSelectValue(el: HTMLSelectElement, value: string): boolean {
   if (!value) return false;
-  const norm = value.trim().toLowerCase();
-  const options = Array.from(el.options);
+  const norm = normalizeForMatch(value);
+  if (!norm) return false;
+
+  const candidates = Array.from(el.options)
+    .map((opt, idx) => ({
+      idx,
+      opt,
+      text: normalizeForMatch(opt.textContent ?? ''),
+      value: normalizeForMatch(opt.value ?? ''),
+    }))
+    .filter((c) => !c.opt.disabled && c.text && c.opt.value !== '');
+
+  const inputCanonical = canonicalOf(value);
 
   // 1. Exact text match
-  let idx = options.findIndex((o) => (o.textContent ?? '').trim().toLowerCase() === norm);
+  let hit = candidates.find((c) => c.text === norm);
   // 2. Exact value attribute match
-  if (idx < 0) idx = options.findIndex((o) => o.value.trim().toLowerCase() === norm);
-  // 3. Contains
-  if (idx < 0) {
-    idx = options.findIndex((o) => (o.textContent ?? '').toLowerCase().includes(norm));
+  if (!hit) hit = candidates.find((c) => c.value === norm);
+  // 3. Synonym-canonical equality
+  if (!hit && inputCanonical) {
+    hit = candidates.find((c) => canonicalOf(c.opt.textContent ?? '') === inputCanonical);
   }
-  // 4. Yes/No special case — match starts-with
-  if (idx < 0 && (norm === 'yes' || norm === 'no')) {
-    idx = options.findIndex((o) => (o.textContent ?? '').trim().toLowerCase().startsWith(norm));
+  // 4. Option text contains input
+  if (!hit) hit = candidates.find((c) => c.text.includes(norm));
+  // 5. Input value contains option text — but only for option texts that
+  // are at least 2 chars to avoid matching one-letter abbreviations.
+  if (!hit) hit = candidates.find((c) => c.text.length >= 2 && norm.includes(c.text));
+  // 6. Token prefix — "yes" → "Yes, …", "no" → "No, …"
+  if (!hit) hit = candidates.find((c) => c.text.startsWith(`${norm} `));
+
+  if (!hit) return false;
+
+  if (el.multiple) {
+    // "Select all that apply" — don't clobber other selections, just
+    // toggle this option on.
+    hit.opt.selected = true;
+  } else {
+    el.selectedIndex = hit.idx;
   }
-  if (idx < 0) return false;
-
-  // Skip placeholder options like "-- No answer --" / disabled / empty value
-  const target = options[idx];
-  if (!target) return false;
-  if (target.disabled) return false;
-
-  el.selectedIndex = idx;
   el.dispatchEvent(new Event('input', { bubbles: true }));
   el.dispatchEvent(new Event('change', { bubbles: true }));
   return true;
@@ -522,6 +687,176 @@ function selectAllFields(): EditableField[] {
   return Array.from(document.querySelectorAll<EditableField>(selector)).slice(0, 500);
 }
 
+/** Hard cap on per-frame LLM questions — keeps the batch tractable. */
+const MAX_PENDING_PER_FRAME = 20;
+
+/**
+ * Decide whether (and how) an unmatched field should be answered by the LLM.
+ * Returns the queue entry to push, or `null` to treat the field as truly
+ * unmatched.
+ *
+ * NOTE: SELECTS never go to the LLM. They're handled by the deterministic
+ * `pickSelectDefault` path in the main loop so the engine always picks one
+ * of the dropdown's real options — no risk of AI-generated text drifting
+ * off the option list and leaving the field blank.
+ *
+ * TEXTAREA — queue when the label looks like a question.
+ *
+ * INPUT  — queue when the label looks like a question AND the field is a
+ *   short text/number/url type. Catches "What are your salary expectations?",
+ *   "When can you start?", etc.
+ */
+function queueAsLLMQuestion(
+  el: EditableField,
+  cls: ClassifiedField,
+  fieldIndex: number,
+): AutofillPendingQuestion | null {
+  if (!cls.labelText) return null;
+  // Selects never go to the LLM — handled by pickSelectDefault.
+  if (el.tagName === 'SELECT') return null;
+
+  if (el.tagName === 'TEXTAREA') {
+    if (!cls.questionLike) return null;
+    return {
+      fieldIndex,
+      question: cls.labelText,
+      hint: cls.hint,
+      fieldKind: 'textarea',
+    };
+  }
+
+  if (el.tagName === 'INPUT') {
+    const type = (el as HTMLInputElement).type;
+    // Only short text-ish inputs make sense for free-form answers.
+    if (!['text', 'tel', 'url', 'search', 'number', ''].includes(type)) return null;
+    if (!cls.questionLike) return null;
+    return {
+      fieldIndex,
+      question: cls.labelText,
+      hint: cls.hint,
+      fieldKind: 'input',
+    };
+  }
+
+  return null;
+}
+
+// ---------- deterministic select fallback ----------
+
+/**
+ * Find the first option text in `options` that satisfies `matcher`. Returns
+ * the option's full text, since `setSelectValue` does the actual matching
+ * against the live option list.
+ */
+function pickOption(options: string[], matcher: (lower: string) => boolean): string | null {
+  for (const o of options) {
+    if (matcher(o.trim().toLowerCase())) return o;
+  }
+  return null;
+}
+
+const RE_YES = /^y(?:es\b|$)/;
+const RE_NO = /^n(?:o\b|$)|^no,|^i (?:am )?not\b/;
+const RE_PNTS = /prefer not|decline|do not wish|don['’]t wish|rather not|wish to self-?identify/;
+
+/**
+ * Pick a sensible existing option for a SELECT whose label matches a common
+ * application-form pattern. Runs whenever the user's profile doesn't supply
+ * a value (or the value doesn't match an option). Defaults bias toward
+ * answers that are safe across most US/Canada forms:
+ *
+ *   - EEO questions (race, gender, transgender, sexual orientation, age,
+ *     disability, veteran, pronouns) → "Prefer not to say" if present;
+ *     for the binary EEO ones (disability/veteran/transgender) fall back
+ *     to "No".
+ *   - "Have you previously worked here / ever worked at <X>?" → No.
+ *   - "Are you authorized to work…?" → Yes (the candidate is applying, so
+ *     in the freelance / professional case Yes is the right default).
+ *   - "Do you require sponsorship / visa / work permit?" → No.
+ *   - "Do you have experience with X?" / "Are you experienced?" → Yes.
+ *   - Consent / acknowledgement → Yes.
+ *
+ * Returns null if no pattern matches, so the field stays unmatched and the
+ * user can fill it manually.
+ */
+function pickSelectDefault(el: HTMLSelectElement, labelText: string): string | null {
+  if (!labelText) return null;
+  const options = getSelectOptionTexts(el);
+  if (options.length === 0) return null;
+  const label = labelText.toLowerCase();
+
+  // EEO-style → "Prefer not to say" first.
+  const isEEO =
+    /\b(race|ethnicity|gender|sex(?:ual)?|transgender|orientation|disability|veteran|protected[-_ ]?veteran|age|pronouns?)\b/.test(
+      label,
+    );
+  if (isEEO) {
+    const pnts = pickOption(options, (s) => RE_PNTS.test(s));
+    if (pnts) return pnts;
+    // Binary EEO (disability / veteran / transgender) → "No"
+    if (/\b(disability|disabled|veteran|protected|transgender)\b/.test(label)) {
+      const no = pickOption(options, (s) => RE_NO.test(s));
+      if (no) return no;
+    }
+  }
+
+  // "Have you previously / ever worked at …" → No
+  if (/\b(previously[-_ ]?worked|ever[-_ ]?worked|prior[-_ ]?employment|formerly[-_ ]?(worked|employed)|worked[-_ ]?(for|at)[-_ ]?(us|this[-_ ]?company))\b/.test(label)) {
+    const no = pickOption(options, (s) => RE_NO.test(s));
+    if (no) return no;
+  }
+
+  // Work auth → Yes
+  if (/\b(authorized[-_ ]?to[-_ ]?work|legally[-_ ]?authorized|eligible[-_ ]?to[-_ ]?work|right[-_ ]?to[-_ ]?work)\b/.test(label)) {
+    const yes = pickOption(options, (s) => RE_YES.test(s));
+    if (yes) return yes;
+  }
+
+  // Sponsorship / visa → No
+  if (/\b(sponsorship|require[-_ ]?(any[-_ ]?form[-_ ]?of[-_ ]?)?(visa|work[-_ ]?permit)|h[-_ ]?1[-_ ]?b)\b/.test(label)) {
+    const no = pickOption(options, (s) => RE_NO.test(s));
+    if (no) return no;
+  }
+
+  // Consent / agreement → Yes
+  if (/\b(consent|i[-_ ]?(hereby[-_ ]?)?agree|acknowledge|by[-_ ]?submitting)\b/.test(label)) {
+    const yes = pickOption(options, (s) => RE_YES.test(s));
+    if (yes) return yes;
+  }
+
+  // Experience-yes-no → Yes (the candidate applied — they presumably have it)
+  if (/\b(do[-_ ]?you[-_ ]?have[-_ ]?(any[-_ ]?|relevant[-_ ]?|prior[-_ ]?)?experience|have[-_ ]?you[-_ ]?worked[-_ ]?(in|with)|are[-_ ]?you[-_ ]?experienced)\b/.test(label)) {
+    const yes = pickOption(options, (s) => RE_YES.test(s));
+    if (yes) return yes;
+  }
+
+  return null;
+}
+
+/**
+ * Try to populate a SELECT field. Two layers:
+ *   1. The classifier's category → masterProfile / bidPreferences value.
+ *      `setSelectValue` runs the value through the synonym/contains ladder.
+ *   2. If that misses, the label-based deterministic fallback above. We
+ *      never queue selects for the LLM — there's no good reason to spend
+ *      a model call to pick "Yes" vs "No".
+ *
+ * Returns the value actually written, or null if nothing matched.
+ */
+function fillSelectField(
+  el: HTMLSelectElement,
+  cls: ClassifiedField,
+  data: BidPayload,
+): string | null {
+  if (cls.category !== 'unknown') {
+    const value = valueForCategory(cls.category, data);
+    if (value && setSelectValue(el, value)) return value;
+  }
+  const fallback = pickSelectDefault(el, cls.labelText);
+  if (fallback && setSelectValue(el, fallback)) return fallback;
+  return null;
+}
+
 /**
  * Scan + classify + fill known categories. Returns the report PLUS the
  * still-unmatched question-like fields so the popup can batch-send them to
@@ -536,40 +871,72 @@ export function autofillBidForm(data: BidPayload): AutofillReport {
   const writtenOnce = new Set<Category>();
   const allowDuplicates = new Set<Category>(['cover-letter', 'summary']);
 
+  const queue = (q: AutofillPendingQuestion | null): void => {
+    if (!q) {
+      unmatched += 1;
+      return;
+    }
+    if (pending.length >= MAX_PENDING_PER_FRAME) {
+      unmatched += 1;
+      return;
+    }
+    pending.push(q);
+  };
+
   for (let i = 0; i < candidates.length; i += 1) {
     const el = candidates[i];
     if (!el) continue;
     if (el.disabled || (el as HTMLInputElement).readOnly) continue;
     if (!isVisible(el)) continue;
-    // Don't overwrite a user-entered value.
-    if (el.tagName !== 'SELECT' && (el as HTMLInputElement).value?.length > 0) continue;
+    // Don't overwrite a user-entered value. For selects, also skip if a
+    // non-placeholder option is already selected.
+    if (el.tagName === 'SELECT') {
+      const sel = el as HTMLSelectElement;
+      const cur = sel.options[sel.selectedIndex];
+      if (cur && cur.value && cur.value.length > 0) continue;
+    } else if ((el as HTMLInputElement).value?.length > 0) {
+      continue;
+    }
 
     const cls = classifyField(el);
 
-    if (cls.category === 'unknown') {
-      // Question-like textarea → queue for LLM Q&A
-      if (cls.questionLike && el.tagName === 'TEXTAREA') {
-        pending.push({
-          fieldIndex: i,
-          question: cls.labelText,
-          hint: cls.hint,
+    // ----- SELECT path: always deterministic, never LLM -----
+    if (el.tagName === 'SELECT') {
+      if (cls.category !== 'unknown' && writtenOnce.has(cls.category) && !allowDuplicates.has(cls.category)) {
+        continue;
+      }
+      const written = fillSelectField(el as HTMLSelectElement, cls, data);
+      if (written) {
+        if (cls.category !== 'unknown') writtenOnce.add(cls.category);
+        filled.push({
+          category: cls.category === 'unknown' ? 'eeo-default' : cls.category,
+          preview: written.length > 80 ? `${written.slice(0, 77)}…` : written,
+          selectorHint: cls.hint,
         });
       } else {
         unmatched += 1;
       }
       continue;
     }
+
+    // ----- INPUT / TEXTAREA path: existing logic, may queue for LLM -----
+    if (cls.category === 'unknown') {
+      queue(queueAsLLMQuestion(el, cls, i));
+      continue;
+    }
     if (writtenOnce.has(cls.category) && !allowDuplicates.has(cls.category)) continue;
 
     const value = valueForCategory(cls.category, data);
     if (!value) {
-      unmatched += 1;
+      // Matcher hit but the user has no value — queue the textarea/input
+      // for LLM Q&A (selects already returned above).
+      queue(queueAsLLMQuestion(el, cls, i));
       continue;
     }
 
     const ok = writeField(cls, value);
     if (!ok) {
-      unmatched += 1;
+      queue(queueAsLLMQuestion(el, cls, i));
       continue;
     }
 
@@ -593,7 +960,9 @@ export function autofillBidForm(data: BidPayload): AutofillReport {
 /**
  * Second-pass filler: write LLM-generated answers into the previously
  * detected question-like fields. Each entry pairs the `fieldIndex` from
- * `pendingQuestions` with the generated `answer`.
+ * `pendingQuestions` with the generated `answer`. Dispatches SELECT vs
+ * INPUT/TEXTAREA writers so the Greenhouse custom-question selects also
+ * get filled.
  */
 export function fillAnswers(answers: Array<{ fieldIndex: number; answer: string }>): number {
   const fields = selectAllFields();
@@ -603,9 +972,14 @@ export function fillAnswers(answers: Array<{ fieldIndex: number; answer: string 
     const el = fields[fieldIndex];
     if (!el) continue;
     if (el.disabled || (el as HTMLInputElement).readOnly) continue;
-    if (el.tagName !== 'TEXTAREA' && el.tagName !== 'INPUT') continue;
-    setNativeInputValue(el as HTMLInputElement | HTMLTextAreaElement, answer);
-    filled += 1;
+    if (el.tagName === 'SELECT') {
+      if (setSelectValue(el as HTMLSelectElement, answer)) filled += 1;
+      continue;
+    }
+    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+      setNativeInputValue(el as HTMLInputElement | HTMLTextAreaElement, answer);
+      filled += 1;
+    }
   }
   return filled;
 }

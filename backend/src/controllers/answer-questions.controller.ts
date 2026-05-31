@@ -10,6 +10,14 @@ export const AnswerQuestionsRequestSchema = z.object({
       z.object({
         id: z.string().min(1).max(80),
         question: z.string().min(3).max(2000),
+        /**
+         * What kind of field the answer will be written into. Defaults to
+         * 'textarea' for backward compatibility — the LLM uses this to size
+         * the response. For 'select', the answer MUST be one of `options`
+         * verbatim, else the popup will leave the field blank.
+         */
+        fieldKind: z.enum(['input', 'textarea', 'select']).default('textarea'),
+        options: z.array(z.string().min(1).max(300)).max(60).optional(),
       }),
     )
     .min(1)

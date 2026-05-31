@@ -2,7 +2,8 @@ import type { ExtractedJd } from '../schemas/jd.schema.js';
 import type { MasterProfile } from '../schemas/resume.schema.js';
 import type { PromptModule, PromptOutput } from './index.js';
 
-const SYSTEM = `I will provide one Job Description after this prompt.
+const SYSTEM = `
+I will provide one Job Description after this prompt.
 
 Your job is to generate ONE complete TXT resume tailored to that Job Description.
 
@@ -18,6 +19,10 @@ Do NOT output notes.
 Do NOT mention ATS score.
 Do NOT say "Here is the resume."
 Output ONLY the final resume text.
+
+==================================================
+CANDIDATE PROFILE - FIXED FACTS
+==================================================
 
 Important truth rules:
 - Do NOT change company names.
@@ -142,6 +147,7 @@ Keyword placement rules:
 - Put all major technical keywords in Skills.
 - Repeat the most important keywords inside Professional Experience bullets.
 - Use exact JD wording where natural.
+- Add a Soft Skills line in Skills when the JD includes soft-skill phrases.
 - If the JD repeats a keyword several times, use that keyword more than once across the resume.
 - Do not keyword-stuff.
 - Do not create long unnatural keyword lists.
@@ -157,68 +163,6 @@ Before final output, silently check:
 - Does the resume sound natural?
 
 If important JD keywords are missing, revise internally before final answer.
-
-==================================================
-ATS UMBRELLA PHRASE PRESERVATION (CRITICAL FOR HIGH MATCH SCORES)
-==================================================
-
-ATS systems score EXACT phrase matches. They look for both granular technologies (React, Node.js, Git, AWS, Docker) AND umbrella/category phrases (Full-stack development, Version control, AWS services). Most candidates lose 10-20% of their match score because the resume mentions only the granular tech and skips the umbrella phrase, even when the candidate truthfully does that work.
-
-For EVERY umbrella / category phrase the JD uses, include that EXACT phrase verbatim somewhere in the resume (Summary, Skills, or an Experience bullet) — in addition to listing the specific technologies. Examples of umbrella phrases that commonly get missed:
-
-- "Full-stack development" / "Full stack development"
-- "Frontend development" / "Backend development"
-- "Mobile development" / "Android development" / "iOS development"
-- "Web development"
-- "Software development" / "Software engineering"
-- "API development" / "API design" / "REST API design"
-- "Microservices architecture"
-- "Database design" / "Database administration" / "Schema design"
-- "System integration" / "Systems integration"
-- "Cloud infrastructure" / "Cloud services" / "AWS services" / "GCP services"
-- "Cloud-native development"
-- "Infrastructure as code"
-- "CI/CD pipelines" / "Continuous integration" / "Continuous deployment"
-- "Version control" (include alongside Git/GitHub/GitLab — e.g., "Git for version control")
-- "Code review" / "Code reviews"
-- "Unit testing" / "Integration testing" / "End-to-end testing" / "Test automation"
-- "Test-driven development"
-- "Performance optimization"
-- "Responsive design"
-- "Agile development" / "Scrum" / "Sprint planning"
-- "Technical support" / "Production support" / "Incident response"
-- "Cross-functional collaboration"
-- "Mentoring" / "Mentorship"
-- "Authentication" / "Authorization" / "Access control"
-- "Data pipelines" / "Data processing" / "ETL"
-- "Real-time data" / "Real-time systems"
-- "Distributed systems"
-- "Observability" / "Monitoring" / "Logging"
-
-EXACT-WORDING RULE: When the JD adds a qualifier, use the FULL JD wording. Do not shorten:
-- JD says "AWS services" -> resume says "AWS services" (not just "AWS")
-- JD says "REST APIs" -> resume says "REST APIs" (not just "API")
-- JD says "GitHub Actions" -> resume says "GitHub Actions" (not "Github Actions" — match capitalization)
-- JD says "PostgreSQL" -> resume says "PostgreSQL" (not "Postgres")
-- JD says "JavaScript" -> resume says "JavaScript" (not "JS")
-- JD says "Node.js" -> resume says "Node.js" (with the .js suffix)
-
-TRUTHFUL EXPANSION RULE: An umbrella phrase IS truthful if the candidate has the underlying skill. Examples:
-- Candidate has Node.js + React in profile -> "Full-stack development" is truthful, include it.
-- Candidate has React Native in profile -> "Mobile development" / "Android development" / "iOS development" are all truthful.
-- Candidate has Git in profile -> "Version control" is truthful.
-- Candidate has Jest / Playwright / pytest in profile -> "Unit testing" / "Test automation" / "Integration testing" are all truthful.
-- Candidate has built APIs (Express, NestJS, FastAPI) -> "API development" / "REST API design" are truthful.
-- Candidate has CI/CD experience (GitHub Actions, GitLab CI) -> "CI/CD pipelines" / "Continuous integration" / "Continuous deployment" are all truthful.
-
-Do NOT skip the umbrella phrase just because the granular tech is listed. The ATS counts them separately.
-
-NEVER FAKE: do not include an umbrella phrase the candidate's profile cannot support. If the candidate has no DB experience, do not write "Database design". If no cloud experience, do not write "Cloud infrastructure".
-
-PLACEMENT GUIDANCE:
-- Summary: include 4-8 strong umbrella phrases that capture the candidate's primary capabilities (e.g., "Senior Full-stack Engineer with 9+ years of full-stack development, API design, and cloud infrastructure experience...").
-- Skills: include umbrella phrases as separate skill bucket items where they fit. Example "Tools & Workflows" bucket items: "Git (version control), GitHub Actions (CI/CD pipelines), Docker, code review".
-- Experience bullets: weave umbrella phrases naturally where the work supports them (e.g., "Led cross-functional collaboration...", "Owned API development for...", "Drove CI/CD pipeline migration...").
 
 ==================================================
 TRUTHFULNESS AND STACK SUPPORT RULES
@@ -240,9 +184,6 @@ RESUME STRUCTURE
 ==================================================
 
 Use this structure exactly:
-
-Full Name
-location | Phone Number | Email
 
 Target Title: [Use the JD target role title when truthful]
 
@@ -271,6 +212,46 @@ If a category is not relevant, remove it.
 Do not include empty categories.
 Do not include irrelevant skills.
 Use exact JD technologies when realistic.
+Add this category when the JD includes soft-skill phrases:
+Soft Skills:
+
+Professional Experience
+
+[Role Title]
+MojoTech | Providence, RI | Oct 2023 - Feb 2026
+- [Bullet]
+- [Bullet]
+- [Bullet]
+- [Bullet]
+- [Bullet]
+- [Bullet]
+- [Bullet]
+- [Bullet]
+
+[Role Title]
+Kalshi | New York, NY | Apr 2022 - Sep 2023
+- [Bullet]
+- [Bullet]
+- [Bullet]
+- [Bullet]
+- [Bullet]
+- [Bullet]
+- [Bullet]
+
+[Role Title]
+Origami Studios | Parsippany, NJ | Jul 2020 - Feb 2022
+- [Bullet]
+- [Bullet]
+- [Bullet]
+- [Bullet]
+- [Bullet]
+
+[Role Title]
+AvePoint | Jersey City, NJ | Sep 2019 - Jun 2020
+- [Bullet]
+- [Bullet]
+- [Bullet]
+- [Bullet]
 
 ==================================================
 EXPERIENCE WRITING RULES
@@ -371,59 +352,6 @@ Before final output, silently verify:
 8. Resume has no fake companies, dates, degree, or certifications.
 9. Recent experience is strongest and most relevant.
 10. Output is only the resume.
-
-==================================================
-JSON OUTPUT OVERRIDE (PIPELINE REQUIREMENT)
-==================================================
-
-ALL THE RULES ABOVE STILL APPLY — truth rules, stack alignment, ATS strategy, experience writing rules, banned phrases, the silent quality check, everything. The only thing this section overrides is the OUTPUT FORMAT.
-
-THIS PIPELINE REQUIRES JSON, NOT TXT.
-Override the "Output plain TXT only" / "Output ONLY the final resume text" rule.
-Output ONLY a single JSON object that conforms to the schema below. No prose, no markdown, no code fences, no preamble, no trailing commentary.
-
-The candidate's IDENTITY (name, contact, companies, dates, education) comes from the master profile JSON in the user message — NOT from the "Joshua Adams / MojoTech / Kalshi" example layout above. The example is a layout guide; the master profile is the truth.
-
-SECTION → JSON KEY MAP
-- Name + contact line                  → contact.fullName + contact.email + contact.phone + contact.location + (linkedin / github / website if present in master profile)
-- "Target Title:" line                 → targetTitle (string)
-- Summary paragraph                    → summary (string, 3-4 sentences)
-- Skills categories                    → skills{} for the 7 fixed buckets + extras[] for everything else
-    Languages          → skills.languages[]
-    Frontend           → skills.frontend[]
-    Backend            → skills.backend[]
-    Cloud & DevOps     → skills.cloud[]
-    Databases          → skills.databases[]
-    Testing            → skills.testing[]
-    Tools & Workflows  → skills.tools[]
-    AI/ML, Security, Networking, Others, Workflow & Automation
-                       → extras[] as { heading: "AI/ML" | "Security" | ... , items: string[] }
-- Each "[Role Title] / Company | Location | Dates" block → experience[] entry (one per role from the master profile, same order, same companies & dates)
-- Each "- [Bullet]"                    → experience[i].bullets[j]
-- Education section                    → education[]
-- Certifications (if profile has them) → certifications[]
-
-REQUIRED meta FIELDS (ALL MUST BE PRESENT AND EXACT):
-- meta.schemaVersion MUST equal the exact string "1.0.0"
-- meta.templateId MUST echo the templateId value supplied in the user message
-- meta.generatedAt MUST be the ISO-8601 timestamp supplied in the user message (echo it verbatim)
-- meta.sourceJobUrl MUST echo the source URL supplied in the user message
-
-FULL JSON SCHEMA (use these key names and shapes EXACTLY):
-{
-  "meta": { "schemaVersion": "1.0.0", "templateId": string, "generatedAt": string, "sourceJobUrl": string },
-  "contact": { "fullName": string, "email": string, "phone"?: string, "location"?: string, "website"?: string, "linkedin"?: string, "github"?: string },
-  "targetTitle": string,
-  "summary": string,
-  "skills": { "languages": string[], "frontend": string[], "backend": string[], "cloud": string[], "databases": string[], "testing": string[], "tools": string[] },
-  "experience": [{ "company": string, "title": string, "location"?: string, "startDate": string, "endDate": string, "bullets": string[] }],
-  "projects": [{ "name": string, "link"?: string, "description": string, "technologies": string[], "bullets": string[] }],
-  "education": [{ "institution": string, "degree": string, "field"?: string, "startDate"?: string, "endDate"?: string, "details"?: string[] }],
-  "certifications": [{ "name": string, "issuer": string, "date"?: string, "credentialUrl"?: string }],
-  "extras": [{ "heading": string, "items": string[] }]
-}
-
-experience[].bullets MUST be non-empty for every role. If the master profile has 0 projects / certifications, return [] for those arrays. Do not omit any top-level key listed above.
 `;
 
 export interface ResumePromptInput {
@@ -432,12 +360,25 @@ export interface ResumePromptInput {
   templateId: string;
 }
 
+/**
+ * Pipeline wrapper for the static SYSTEM prompt above.
+ *
+ * The SYSTEM constant is a "produce TXT resume" prompt by design — the user
+ * owns its wording and we don't edit it. But the backend pipeline needs the
+ * model to emit JSON conforming to ResumeJsonSchema. We inject that
+ * requirement here, in the USER message, so the SYSTEM stays untouched.
+ *
+ * This is the ONLY place that overrides the "Output plain TXT only" rule —
+ * everything else (truth rules, stack alignment, ATS strategy, banned
+ * phrases, the final quality check) still applies verbatim.
+ */
 function buildUser(input: ResumePromptInput): string {
+  const generatedAt = new Date().toISOString();
   return [
     'Generate the tailored resume JSON for the candidate below.',
     '',
     `Template id (echo into meta.templateId): ${input.templateId}`,
-    `Generated at (echo into meta.generatedAt): ${new Date().toISOString()}`,
+    `Generated at (echo into meta.generatedAt): ${generatedAt}`,
     `Source job URL (echo into meta.sourceJobUrl): ${input.jd.url}`,
     '',
     'CANDIDATE MASTER PROFILE (source of truth — do not invent beyond this):',
@@ -445,15 +386,79 @@ function buildUser(input: ResumePromptInput): string {
     JSON.stringify(input.masterProfile, null, 2),
     '```',
     '',
-    'JOB DESCRIPTION (analyze this internally per the HIDDEN JD ANALYSIS rules above, then tailor the resume):',
+    'JOB DESCRIPTION (analyze internally per the HIDDEN JD ANALYSIS rules from the system message, then tailor the resume):',
     '---',
     input.jd.description,
     '---',
+    '',
+    '==================================================',
+    'RESPONSE FORMAT — OVERRIDES "Output plain TXT" RULE',
+    '==================================================',
+    '',
+    'All rules from the system message still apply — truth rules, stack alignment,',
+    'ATS strategy, experience writing rules, banned phrases, the final quality check,',
+    'every rule. The ONE thing this section overrides is the output format.',
+    '',
+    'This pipeline requires JSON, not TXT. Output ONLY a single JSON object —',
+    'no prose, no markdown code fences, no preamble, no trailing commentary.',
+    '',
+    'JSON SCHEMA (use these key names and shapes EXACTLY):',
+    '{',
+    '  "meta":    { "schemaVersion": "1.0.0", "templateId": string, "generatedAt": string, "sourceJobUrl": string },',
+    '  "contact": { "fullName": string, "email": string, "phone"?: string, "location"?: string, "website"?: string, "linkedin"?: string, "github"?: string },',
+    '  "targetTitle": string,',
+    '  "summary": string,',
+    '  "skills":  { "languages": string[], "frontend": string[], "backend": string[], "cloud": string[], "databases": string[], "testing": string[], "tools": string[] },',
+    '  "experience":     [{ "company": string, "title": string, "location"?: string, "startDate": string, "endDate": string, "bullets": string[] }],',
+    '  "projects":       [{ "name": string, "link"?: string, "description": string, "technologies": string[], "bullets": string[] }],',
+    '  "education":      [{ "institution": string, "degree": string, "field"?: string, "startDate"?: string, "endDate"?: string, "details"?: string[] }],',
+    '  "certifications": [{ "name": string, "issuer": string, "date"?: string, "credentialUrl"?: string }],',
+    '  "extras":         [{ "heading": string, "items": string[] }]',
+    '}',
+    '',
+    'REQUIRED meta FIELDS (all must be present, exact strings):',
+    '- meta.schemaVersion MUST equal the exact string "1.0.0"',
+    `- meta.templateId    MUST equal: ${input.templateId}`,
+    `- meta.generatedAt   MUST equal: ${generatedAt}`,
+    `- meta.sourceJobUrl  MUST equal: ${input.jd.url}`,
+    '',
+    'ALL SEVEN skills buckets MUST be present in the JSON as arrays, even if the',
+    'JD does not call for some of them — emit [] for any bucket you would otherwise',
+    'omit. Required keys (do not skip any):',
+    '  skills.languages, skills.frontend, skills.backend, skills.cloud,',
+    '  skills.databases, skills.testing, skills.tools',
+    '',
+    'SECTION → JSON KEY MAP (translate the system message\'s TXT structure to JSON):',
+    '- "Target Title:" line                  → targetTitle',
+    '- Summary paragraph                     → summary  (3-4 sentences, single string)',
+    '- Skills sub-headings:',
+    '    Languages          → skills.languages[]',
+    '    Frontend           → skills.frontend[]',
+    '    Backend            → skills.backend[]',
+    '    Cloud & DevOps     → skills.cloud[]',
+    '    Databases          → skills.databases[]',
+    '    Testing            → skills.testing[]',
+    '    Tools & Workflows  → skills.tools[]',
+    '    AI/ML, Security, Networking, Soft Skills, Others',
+    '                       → extras[] as { heading: "AI/ML" | "Security" | "Networking" | "Soft Skills" | "Others", items: string[] }',
+    '- Each "[Role Title] / Company | Location | Dates" block → experience[] entry',
+    '  (one per role from the master profile, in the same order, with the same',
+    '   companies and dates — fixed facts).',
+    '- Each "- [Bullet]"                     → experience[i].bullets[j]',
+    '- Education section (from master profile)            → education[]',
+    '- Certifications (if master profile has them)        → certifications[]',
+    '',
+    'The candidate IDENTITY (name, email, phone, location, linkedin, github,',
+    'website) comes from the master profile JSON above — copy into contact{}.',
+    '',
+    'experience[].bullets MUST be non-empty for every role. If the master profile',
+    'has 0 projects / 0 certifications, emit [] for those arrays. Do NOT omit',
+    'any top-level key listed in the schema.',
   ].join('\n');
 }
 
 export const generateResumePrompt: PromptModule<ResumePromptInput> = {
-  version: 'generate-resume@2026-05-29.v8-umbrella-phrases',
+  version: 'generate-resume@2026-05-31.v9-user-side-json',
   build: (input): PromptOutput => ({
     system: SYSTEM,
     user: buildUser(input),

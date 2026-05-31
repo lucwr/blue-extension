@@ -5,52 +5,71 @@ import type { PromptModule, PromptOutput } from './index.js';
 /**
  * Bid-form short-answer generator.
  *
- * Given a batch of free-text questions from a bid/application form and the
- * candidate's full context (JD + tailored resume + master profile), produce
- * one truthful answer per question. Each answer:
+ * Each input question carries a `fieldKind` that tells the LLM how the
+ * answer will be used:
  *
- *   - Is 2-4 sentences, NEVER longer than 600 characters.
- *   - Reads like a real engineer wrote it on the application form (not a
- *     marketing pitch, not a cover letter, not an essay).
- *   - Grounds claims in the candidate's actual experience (no fabrication).
- *   - Mirrors JD vocabulary naturally where it fits — but never crammed.
- *   - Avoids the AI-tell phrases listed below.
- *   - Avoids re-stating the question.
+ *   - `select`   — answer MUST be one of `options` verbatim. Used for
+ *                  Greenhouse / Lever / Workable custom-question selects
+ *                  (work auth, prior employment, "how did you hear",
+ *                  EEO fallbacks, consent).
+ *   - `input`    — single-line text input. 1 short sentence, ≤200 chars.
+ *                  ("What are your salary expectations?", "When can you
+ *                  start?", etc.)
+ *   - `textarea` — open-ended free text. 2-4 sentences, ≤600 chars, in
+ *                  natural human voice (no AI tells).
  *
- * Output is a JSON object: { answers: [{ id, text }, ...] } where each
- * `id` echoes the question id verbatim so the popup can match answers to
- * fields.
+ * Output: { answers: [{ id, text }, ...] } where `id` echoes the input id
+ * so the popup can route each answer back to the right field/frame.
  */
-const SYSTEM = `You are answering free-text questions on a job application form on behalf of the candidate. You receive the candidate's background (master profile + tailored resume) and the original job description.
+const SYSTEM = `You are answering questions on a job application form on behalf of the candidate. You receive the candidate's background (master profile + tailored resume) and the original job description.
 
-RULES — write like a real senior engineer typed this into the form, not like an AI assistant:
-- 2-4 sentences per answer, max 600 characters.
-- Plain, direct, specific. No filler ("I'm excited to", "I'm passionate about").
-- Use first person ("I"), present tense where possible.
-- Vary sentence length and structure across answers — don't fall into a template.
-- Ground every claim in the candidate's actual experience from the master profile.
-- Use the JD's vocabulary naturally when it fits the candidate's truth — but no keyword stuffing.
-- Don't re-state the question.
-- Don't open with the answer's name (don't say "Why I want this role: …" — just answer).
-- Don't be sycophantic about the company.
+Each input question has a fieldKind that tells you what KIND of answer the form expects. Follow the rules for that kind exactly — they are the difference between an answer that gets accepted and one that gets dropped on the floor.
 
-AVOID these AI-tell phrases and patterns:
-- "I'm thrilled / excited / passionate / eager to"
-- "deeply / truly / genuinely"
-- "in today's fast-paced world"
-- "leveraging cutting-edge"
-- "I would love the opportunity to"
-- "Throughout my career"
-- "in addition to my technical skills"
-- "perfectly aligns with"
-- "a strong fit"
-- starting every answer with "I" (vary the opening)
-- ending with "I look forward to"
+---
 
-TRUTH RULES (non-negotiable):
-- Never invent companies, dates, titles, projects, or numbers the candidate doesn't have.
-- If a question asks about something not in the profile (e.g. "describe your experience with X"), acknowledge with what IS in the profile that's adjacent. Be honest about it. Don't fake it.
-- Never claim credentials (security clearance, certifications, education) that aren't in the profile.
+KIND = select
+  - The form is a dropdown. Your "text" MUST be EXACTLY one of the strings in the question's "options" array — same casing, same punctuation, no extra characters. Do not invent a new option.
+  - Pick the option the candidate most truthfully matches given the master profile + demographics.
+  - For yes/no work-authorization questions: use masterProfile.demographics.workAuthorizedUS as your guide. "yes" → choose the "Yes" option. Same pattern for sponsorship / veteran / disability when those fields are present.
+  - For "Have you previously worked for <company>" type questions, default to "No" unless the master profile clearly shows the candidate worked there.
+  - For consent / acknowledgement selects ("By submitting my application, I consent…"), pick the agreement option ("Yes", "I consent", "I agree", etc.).
+  - For "How did you hear about us?" type questions, pick the most plausible option for an experienced engineer applying online — "LinkedIn", "Company website", or "Other" if nothing fits.
+  - If the candidate's data is missing AND there's a "Prefer not to say" option, choose that. Otherwise pick the most neutral defensible option.
+
+KIND = input
+  - Single-line text input. Answer in ONE short sentence, max 200 characters.
+  - Be direct and factual. No filler.
+  - For salary expectations: give a single-figure range calibrated to the candidate's yearsOfExperience and the JD (e.g. "$110,000 – $140,000" or "Negotiable, market rate for senior engineers"). Don't say "Open to discussion" alone.
+  - For "When can you start?" / availability: a clear timeframe ("Two weeks' notice", "Immediately", etc.). Use the master profile if it implies anything.
+  - For URLs/handles: if the master profile has one, use it; else leave a clean placeholder ("N/A").
+
+KIND = textarea
+  - Open-ended free text. 2-4 sentences, max 600 characters.
+  - Write like a real senior engineer typed this into the form — not like an AI assistant.
+  - Vary sentence length and structure across answers; don't fall into a template.
+  - Use first person ("I"), present tense where it fits.
+  - Ground every claim in the candidate's actual experience from the master profile.
+  - Use the JD's vocabulary naturally when it fits the candidate's truth — no keyword stuffing.
+  - Don't re-state the question. Don't open with the answer's name.
+  - AVOID these AI tells (and don't paraphrase them either):
+      "I'm thrilled / excited / passionate / eager to"
+      "deeply / truly / genuinely"
+      "in today's fast-paced world"
+      "leveraging cutting-edge"
+      "I would love the opportunity to"
+      "Throughout my career"
+      "in addition to my technical skills"
+      "perfectly aligns with"
+      "a strong fit"
+      starting every sentence with "I"
+      ending with "I look forward to"
+
+---
+
+TRUTH RULES (non-negotiable for ALL kinds):
+  - Never invent companies, dates, titles, projects, numbers, or credentials (clearances, certifications, education) the candidate doesn't have.
+  - If a question asks about something not in the profile, acknowledge it with the closest TRUE adjacent experience. Don't fake it.
+  - For selects: when none of the options matches the candidate's truth, pick the most neutral option ("Prefer not to say" or "Other" if present); never invent.
 
 OUTPUT FORMAT — single JSON object, no prose, no markdown:
 {
@@ -60,10 +79,15 @@ OUTPUT FORMAT — single JSON object, no prose, no markdown:
   ]
 }
 
-There must be one entry per input question, in the same order, with the SAME id strings.`;
+One entry per input question, in the same order, with the SAME id strings.`;
 
 export interface AnswerQuestionsInput {
-  questions: Array<{ id: string; question: string }>;
+  questions: Array<{
+    id: string;
+    question: string;
+    fieldKind: 'input' | 'textarea' | 'select';
+    options?: string[];
+  }>;
   jd: ExtractedJd;
   resume: ResumeJson;
   masterProfile: MasterProfile;
@@ -111,7 +135,7 @@ function buildUser(input: AnswerQuestionsInput): string {
 }
 
 export const answerQuestionsPrompt: PromptModule<AnswerQuestionsInput> = {
-  version: 'answer-questions@2026-05-29.v1',
+  version: 'answer-questions@2026-05-31.v2-select-aware',
   build: (input): PromptOutput => ({
     system: SYSTEM,
     user: buildUser(input),

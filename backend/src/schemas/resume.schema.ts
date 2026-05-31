@@ -11,14 +11,22 @@ export const ResumeContactSchema = z.object({
 });
 export type ResumeContact = z.infer<typeof ResumeContactSchema>;
 
+/**
+ * Every skill bucket defaults to []. The static SYSTEM prompt tells the
+ * model to "remove" categories that aren't relevant to the JD — if it does
+ * that, Zod would otherwise reject the JSON with
+ * "skills.cloud: Required; skills.testing: Required". Default-to-empty
+ * means an omitted bucket is treated as no skills in that category, which
+ * is exactly the intended semantics.
+ */
 export const ResumeSkillsSchema = z.object({
-  languages: z.array(z.string().min(1).max(60)).max(30),
-  frontend: z.array(z.string().min(1).max(60)).max(30),
-  backend: z.array(z.string().min(1).max(60)).max(30),
-  cloud: z.array(z.string().min(1).max(60)).max(20),
-  databases: z.array(z.string().min(1).max(60)).max(20),
-  testing: z.array(z.string().min(1).max(60)).max(20),
-  tools: z.array(z.string().min(1).max(60)).max(30),
+  languages: z.array(z.string().min(1).max(60)).max(30).default([]),
+  frontend: z.array(z.string().min(1).max(60)).max(30).default([]),
+  backend: z.array(z.string().min(1).max(60)).max(30).default([]),
+  cloud: z.array(z.string().min(1).max(60)).max(20).default([]),
+  databases: z.array(z.string().min(1).max(60)).max(20).default([]),
+  testing: z.array(z.string().min(1).max(60)).max(20).default([]),
+  tools: z.array(z.string().min(1).max(60)).max(30).default([]),
 });
 export type ResumeSkills = z.infer<typeof ResumeSkillsSchema>;
 
@@ -70,7 +78,9 @@ export const ResumeExtraSchema = z.object({
 });
 
 export const ResumeMetaSchema = z.object({
-  schemaVersion: z.string().min(1).max(20),
+  // Defaults to the current version so a model that forgets to echo it
+  // doesn't trip the pipeline. Templates only ever support one version.
+  schemaVersion: z.string().min(1).max(20).default('1.0.0'),
   templateId: z.string().min(1).max(60),
   generatedAt: z.string().min(1).max(40),
   sourceJobUrl: z.string().url().optional(),
@@ -112,10 +122,26 @@ export const ResumeDemographicsSchema = z.object({
   veteran: z.string().max(120).default(''),
   /** Self-identified disability status. */
   disability: z.string().max(120).default(''),
+  /** Self-identified transgender status (separate Greenhouse question on many forms). */
+  transgender: z.enum(['yes', 'no', 'prefer-not-to-say', '']).default(''),
   /** Pronouns the candidate prefers (e.g. "she/her", "they/them"). */
   pronouns: z.string().max(40).default(''),
 });
 export type ResumeDemographics = z.infer<typeof ResumeDemographicsSchema>;
+
+/**
+ * User-configurable defaults for the open-ended-but-predictable bid form
+ * questions ("Have you worked for us before?", "How did you hear?", salary).
+ * Lets the autofill engine answer deterministically without round-tripping
+ * the LLM for every form.
+ */
+export const BidPreferencesSchema = z.object({
+  priorEmployment: z.enum(['yes', 'no', 'prefer-not-to-say', '']).default('no'),
+  hasRelevantExperience: z.enum(['yes', 'no', 'prefer-not-to-say', '']).default('yes'),
+  howDidYouHear: z.string().max(120).default('LinkedIn'),
+  salaryExpectation: z.string().max(200).default(''),
+});
+export type BidPreferences = z.infer<typeof BidPreferencesSchema>;
 
 export const MasterProfileSchema = z.object({
   contact: ResumeContactSchema,
@@ -128,6 +154,8 @@ export const MasterProfileSchema = z.object({
   extras: z.array(ResumeExtraSchema).max(6),
   /** Optional — old profiles without this field still validate. */
   demographics: ResumeDemographicsSchema.optional(),
+  /** Optional — defaults for common bid-form questions. */
+  bidPreferences: BidPreferencesSchema.optional(),
 });
 export type MasterProfile = z.infer<typeof MasterProfileSchema>;
 

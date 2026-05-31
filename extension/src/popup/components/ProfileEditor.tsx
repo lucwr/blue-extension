@@ -16,7 +16,9 @@
 import { useEffect, useRef, useState, type FC, type ReactNode } from 'react';
 import { sendToBackground } from '@/services/messaging';
 import {
+  EMPTY_BID_PREFERENCES,
   EMPTY_DEMOGRAPHICS,
+  type BidPreferences,
   type MasterProfile,
   type ResumeContact,
   type ResumeDemographics,
@@ -255,6 +257,12 @@ export const ProfileEditor: FC = () => {
     setDraft((d) => ({
       ...d,
       demographics: { ...(d.demographics ?? EMPTY_DEMOGRAPHICS), ...patch },
+    }));
+
+  const patchBidPreferences = (patch: Partial<BidPreferences>): void =>
+    setDraft((d) => ({
+      ...d,
+      bidPreferences: { ...(d.bidPreferences ?? EMPTY_BID_PREFERENCES), ...patch },
     }));
 
   const showFlash = (msg: string, ms = 1800): void => {
@@ -722,11 +730,60 @@ export const ProfileEditor: FC = () => {
                 options={disabilityOptions}
                 onChange={(v) => patchDemographics({ disability: v })}
               />
+              <Select
+                label="Do you identify as transgender?"
+                value={demo.transgender}
+                options={yesNo}
+                onChange={(v) => patchDemographics({ transgender: v as YesNoPNTS })}
+              />
               <Field
                 label="Pronouns"
                 placeholder="e.g. she/her, he/him, they/them"
                 value={demo.pronouns}
                 onChange={(v) => patchDemographics({ pronouns: v })}
+              />
+            </>
+          );
+        })()}
+      </Section>
+
+      <Section
+        title="Bid form defaults"
+        subtitle="Answers the extension auto-selects for common application questions. Saves a round trip to the LLM."
+      >
+        {(() => {
+          const prefs = draft.bidPreferences ?? EMPTY_BID_PREFERENCES;
+          const yesNo: ReadonlyArray<{ value: YesNoPNTS; label: string }> = [
+            { value: '', label: '— Not specified —' },
+            { value: 'yes', label: 'Yes' },
+            { value: 'no', label: 'No' },
+            { value: 'prefer-not-to-say', label: 'Prefer not to say' },
+          ];
+          return (
+            <>
+              <Select
+                label="Have you previously worked for this company?"
+                value={prefs.priorEmployment}
+                options={yesNo}
+                onChange={(v) => patchBidPreferences({ priorEmployment: v as YesNoPNTS })}
+              />
+              <Select
+                label="Do you have relevant experience for the role?"
+                value={prefs.hasRelevantExperience}
+                options={yesNo}
+                onChange={(v) => patchBidPreferences({ hasRelevantExperience: v as YesNoPNTS })}
+              />
+              <Field
+                label="How did you hear about this opportunity?"
+                placeholder="LinkedIn, Job board, Referral, Company website, …"
+                value={prefs.howDidYouHear}
+                onChange={(v) => patchBidPreferences({ howDidYouHear: v })}
+              />
+              <Field
+                label="Salary expectation"
+                placeholder="e.g. $130,000 - $160,000, or Negotiable"
+                value={prefs.salaryExpectation}
+                onChange={(v) => patchBidPreferences({ salaryExpectation: v })}
               />
             </>
           );

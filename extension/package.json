@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "make-icons": "node scripts/make-icons.mjs",
-    "test:pdf": "node scripts/run-pdf-test.mjs"
+    "test:pdf": "node scripts/run-pdf-test.mjs",
+    "test:autofill": "node scripts/run-autofill-test.mjs"
   },
   "dependencies": {
     "jspdf": "^2.5.1",

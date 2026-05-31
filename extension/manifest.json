@@ -29,7 +29,7 @@
       "matches": ["http://*/*", "https://*/*"],
       "js": ["src/content/index.ts"],
       "run_at": "document_idle",
-      "all_frames": false,
+      "all_frames": true,
       "match_about_blank": false
     }
   ],
@@ -47,6 +47,8 @@
     "https://www.freelancer.com/*",
     "https://remoteok.com/*",
     "https://wellfound.com/*",
+    "https://*.greenhouse.io/*",
+    "https://job-boards.greenhouse.io/*",
     "http://localhost:8787/*"
   ],
   "web_accessible_resources": [
