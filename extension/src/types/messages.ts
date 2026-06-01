@@ -12,6 +12,7 @@ export type MessageType =
   | 'CS_EXTRACT_JD'
   | 'CS_AUTOFILL_BID'
   | 'CS_FILL_ANSWERS'
+  | 'CS_FILL_UNMATCHED'
   | 'BG_GENERATE_RESUME'
   | 'BG_GENERATE_PROPOSAL'
   | 'BG_IMPORT_RESUME_PDF'
@@ -104,13 +105,54 @@ export interface AutofillPendingQuestion {
   options?: string[];
 }
 
+/**
+ * A field the autofill engine touched but couldn't resolve to a value the
+ * user can verify. Surfaced in the popup so the user can pick from `options`
+ * (when present) or be nudged to fill the page manually. Each descriptor
+ * carries enough stable identity (`fieldKey`) to re-find the field for a
+ * targeted second-pass write via `CS_FILL_UNMATCHED`.
+ */
+export interface AutofillUnmatchedField {
+  /**
+   * Stable id used by the second-pass writer to re-locate the field. Encoded
+   * as one of:
+   *   - `native:<i>`   — index into the content script's `selectAllFields()`
+   *   - `radio:<name>` — the radio group's shared `name` attribute
+   *   - `buttons:<idx>` — the synthetic id assigned by the button-group pass
+   *   - `rs:<i>`       — index into `findReactSelectWidgets()`
+   */
+  fieldKey: string;
+  /**
+   * Frame this descriptor came from. Set by the popup-side aggregator after
+   * the fan-out — content scripts don't know their own frameId. Mirrors
+   * `AutofillPendingQuestion.frameId` so the second-pass writer can target
+   * the right frame.
+   */
+  frameId?: number;
+  /** Human-friendly label for the field (group label or input label). */
+  label: string;
+  /** Kind of field — drives the picker UI in the popup. */
+  fieldKind: 'select' | 'react-select' | 'radio' | 'button-group' | 'input' | 'textarea';
+  /** Short hint about the underlying control (label, name attr). */
+  selectorHint?: string;
+  /**
+   * Visible option texts when the field is a closed-list picker. The popup
+   * renders these as clickable chips; one-click sends a `CS_FILL_UNMATCHED`
+   * with the chosen text. Absent for free-text fields and for react-select
+   * widgets where the menu can't be safely opened without page-side flicker.
+   */
+  options?: string[];
+  /** Why the engine couldn't resolve a value on its own. */
+  reason: 'no-classification' | 'no-value' | 'option-mismatch' | 'over-cap';
+}
+
 export interface AutofillReport {
   /** Successfully filled fields. */
   filled: AutofillFilled[];
   /** Total candidate form fields enumerated. */
   totalFields: number;
-  /** Fields the classifier couldn't confidently map (and not question-like). */
-  unmatched: number;
+  /** Fields the classifier couldn't confidently map — surfaced for manual pick. */
+  unmatchedFields: AutofillUnmatchedField[];
   /** Question-like fields waiting for LLM answers. Popup orchestrates the round trip. */
   pendingQuestions: AutofillPendingQuestion[];
   /** Timestamp the autofill ran. */
@@ -130,6 +172,10 @@ export type AutofillBidMessage = BaseMessage<'CS_AUTOFILL_BID', { data: BidPaylo
 export type FillAnswersMessage = BaseMessage<
   'CS_FILL_ANSWERS',
   { answers: AnsweredQuestion[] }
+>;
+export type FillUnmatchedMessage = BaseMessage<
+  'CS_FILL_UNMATCHED',
+  { picks: Array<{ fieldKey: string; value: string }> }
 >;
 export type GenerateResumeMessage = BaseMessage<
   'BG_GENERATE_RESUME',
@@ -167,6 +213,7 @@ export type AppMessage =
   | ExtractJdMessage
   | AutofillBidMessage
   | FillAnswersMessage
+  | FillUnmatchedMessage
   | GenerateResumeMessage
   | GenerateProposalMessage
   | AnswerQuestionsMessage
@@ -177,6 +224,7 @@ export interface MessageResponseMap {
   CS_EXTRACT_JD: ExtractedJobDescription;
   CS_AUTOFILL_BID: AutofillReport;
   CS_FILL_ANSWERS: { filled: number };
+  CS_FILL_UNMATCHED: { filled: number };
   BG_GENERATE_RESUME: ResumeJson;
   BG_GENERATE_PROPOSAL: ProposalJson;
   BG_IMPORT_RESUME_PDF: MasterProfile;

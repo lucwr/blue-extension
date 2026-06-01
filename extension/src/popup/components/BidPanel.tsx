@@ -1,5 +1,5 @@
 import type { FC } from 'react';
-import type { AutofillReport } from '@/types/messages';
+import type { AutofillReport, AutofillUnmatchedField } from '@/types/messages';
 
 interface Props {
   canBid: boolean;
@@ -9,6 +9,12 @@ interface Props {
   /** True when the LLM is composing answers for free-text questions. */
   answeringQuestions: boolean;
   onBid: () => void;
+  /**
+   * Apply a user-picked value to a field the autofill engine flagged as
+   * unmatched. Receives the field descriptor (with frameId + key) and the
+   * chosen option text. The hook handles routing + optimistic store update.
+   */
+  onPickUnmatched: (u: AutofillUnmatchedField, value: string) => void;
 }
 
 const FIELD_LABELS: Record<string, string> = {
@@ -36,7 +42,23 @@ const FIELD_LABELS: Record<string, string> = {
   'disability-status': 'Disability',
   pronouns: 'Pronouns',
   'llm-answer': 'AI answer',
+  'manual-pick': 'Manual',
 };
+
+/** UI labels for each AutofillUnmatchedField.fieldKind. */
+const KIND_LABELS: Record<AutofillUnmatchedField['fieldKind'], string> = {
+  select: 'Dropdown',
+  'react-select': 'Dropdown',
+  radio: 'Radio',
+  'button-group': 'Buttons',
+  input: 'Input',
+  textarea: 'Long answer',
+};
+
+/** Cap on unmatched-row rendering (overflow gets a "+ N more" footer). */
+const MAX_UNMATCHED_VISIBLE = 6;
+/** Cap on chips per unmatched row. */
+const MAX_CHIPS_VISIBLE = 8;
 
 const BoltIcon: FC<{ className?: string }> = ({ className }) => (
   <svg
@@ -66,10 +88,14 @@ export const BidPanel: FC<Props> = ({
   busy,
   answeringQuestions,
   onBid,
+  onPickUnmatched,
 }) => {
   const lastRanRelative = bidReport ? relativeTime(bidReport.ranAt) : null;
   const filled = bidReport?.filled ?? [];
   const pending = bidReport?.pendingQuestions ?? [];
+  const unmatched = bidReport?.unmatchedFields ?? [];
+  const unmatchedVisible = unmatched.slice(0, MAX_UNMATCHED_VISIBLE);
+  const unmatchedOverflow = Math.max(0, unmatched.length - unmatchedVisible.length);
 
   return (
     <section className="space-y-3 border-t border-slate-200 bg-gradient-to-b from-brand-50/50 to-transparent p-4">
@@ -153,26 +179,77 @@ export const BidPanel: FC<Props> = ({
               <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-800">
                 {pending.length} question{pending.length === 1 ? '' : 's'} need a manual answer
               </p>
-              <ul className="mt-1 space-y-0.5">
-                {pending.slice(0, 4).map((q, i) => (
+              <ul className="mt-1 max-h-32 space-y-0.5 overflow-y-auto pr-1">
+                {pending.map((q, i) => (
                   <li key={i} className="truncate text-[10px] text-amber-900/80" title={q.question}>
                     • {q.question}
                   </li>
                 ))}
-                {pending.length > 4 && (
-                  <li className="text-[10px] text-amber-700/80">
-                    + {pending.length - 4} more…
-                  </li>
-                )}
               </ul>
             </div>
           )}
 
-          {bidReport.unmatched > 0 && (
-            <p className="mt-2 text-[10px] text-slate-400">
-              {bidReport.unmatched} field{bidReport.unmatched === 1 ? '' : 's'} couldn't be matched
-              automatically — fill those manually before submitting.
-            </p>
+          {unmatched.length > 0 && (
+            <div className="mt-2 rounded border border-slate-200 bg-slate-50 px-2 py-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                {unmatched.length} field{unmatched.length === 1 ? '' : 's'} need a manual pick
+              </p>
+              <ul className="mt-1 space-y-1.5">
+                {unmatchedVisible.map((u, i) => {
+                  const chips = (u.options ?? []).filter((t) => t.length > 0);
+                  const chipsVisible = chips.slice(0, MAX_CHIPS_VISIBLE);
+                  const chipsOverflow = Math.max(0, chips.length - chipsVisible.length);
+                  return (
+                    <li
+                      key={`${u.fieldKey}:${u.frameId ?? 'top'}:${i}`}
+                      className="space-y-1"
+                    >
+                      <div className="flex items-start gap-1.5 text-[11px]">
+                        <span className="mt-0.5 inline-flex shrink-0 items-center rounded bg-slate-200 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-700">
+                          {KIND_LABELS[u.fieldKind] ?? u.fieldKind}
+                        </span>
+                        <span
+                          className="min-w-0 flex-1 truncate text-slate-700"
+                          title={u.label}
+                        >
+                          {u.label || '(unlabeled)'}
+                        </span>
+                      </div>
+                      {chipsVisible.length > 0 ? (
+                        <div className="flex flex-wrap gap-1 pl-1">
+                          {chipsVisible.map((t, j) => (
+                            <button
+                              key={`${u.fieldKey}:chip:${j}`}
+                              type="button"
+                              onClick={() => onPickUnmatched(u, t)}
+                              disabled={disabled || busy}
+                              title={t}
+                              className="max-w-[140px] truncate rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[10px] text-slate-700 transition hover:border-brand-400 hover:bg-brand-50 hover:text-brand-800 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {t}
+                            </button>
+                          ))}
+                          {chipsOverflow > 0 && (
+                            <span className="px-1 py-0.5 text-[10px] text-slate-500">
+                              + {chipsOverflow} more
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="pl-1 text-[10px] text-slate-500">
+                          Open the page and fill manually
+                        </p>
+                      )}
+                    </li>
+                  );
+                })}
+                {unmatchedOverflow > 0 && (
+                  <li className="text-[10px] text-slate-500">
+                    + {unmatchedOverflow} more …
+                  </li>
+                )}
+              </ul>
+            </div>
           )}
 
           <p className="mt-2 rounded bg-amber-50 px-2 py-1 text-[10px] text-amber-800">

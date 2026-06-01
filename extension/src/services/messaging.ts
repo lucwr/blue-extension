@@ -197,7 +197,7 @@ function aggregateReplies<M extends AppMessage>(
     const merged: AutofillReport = {
       filled: [],
       totalFields: 0,
-      unmatched: 0,
+      unmatchedFields: [],
       pendingQuestions: [],
       ranAt: new Date().toISOString(),
     };
@@ -206,13 +206,17 @@ function aggregateReplies<M extends AppMessage>(
       anyOk = true;
       const report = (r.result as MessageResult<'CS_AUTOFILL_BID'> & { ok: true }).data;
       merged.totalFields += report.totalFields;
-      merged.unmatched += report.unmatched;
       merged.filled.push(...report.filled);
       for (const q of report.pendingQuestions) {
         // Tag every question with the frame it came from so the second
         // pass can route the LLM-generated answer back without writing
         // into a sibling iframe's form.
         merged.pendingQuestions.push({ ...q, frameId: r.frameId });
+      }
+      for (const u of report.unmatchedFields) {
+        // Same per-frame stamping as pendingQuestions — the manual-pick
+        // second pass (CS_FILL_UNMATCHED) routes per-frame.
+        merged.unmatchedFields.push({ ...u, frameId: r.frameId });
       }
     }
     if (anyOk) return { ok: true, data: merged } as MessageResult<M['type']>;
@@ -231,6 +235,15 @@ function aggregateReplies<M extends AppMessage>(
     let total = 0;
     for (const r of ok) {
       const data = (r.result as MessageResult<'CS_FILL_ANSWERS'> & { ok: true }).data;
+      total += data.filled;
+    }
+    return { ok: true, data: { filled: total } } as MessageResult<M['type']>;
+  }
+
+  if (type === 'CS_FILL_UNMATCHED') {
+    let total = 0;
+    for (const r of ok) {
+      const data = (r.result as MessageResult<'CS_FILL_UNMATCHED'> & { ok: true }).data;
       total += data.filled;
     }
     return { ok: true, data: { filled: total } } as MessageResult<M['type']>;

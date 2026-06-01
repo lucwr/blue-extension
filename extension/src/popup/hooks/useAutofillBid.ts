@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { sendToBackground, sendToTab } from '@/services/messaging';
 import { getMasterProfile } from '@/storage';
-import type { AutofillReport, BidPayload } from '@/types/messages';
+import type { AutofillReport, AutofillUnmatchedField, BidPayload } from '@/types/messages';
 import type { MasterProfile } from '@/types/resume';
 import { usePopupStore } from '../store';
 
@@ -37,6 +37,19 @@ function computeYearsOfExperience(experience: MasterProfile['experience']): numb
   return Math.max(0, latestEnd - earliestStart);
 }
 
+interface UseAutofillBid {
+  /** Run the autofill orchestration. */
+  autofill: () => Promise<void>;
+  /**
+   * Apply a user-chosen value to one of the unmatched fields surfaced by
+   * the autofill report. Routes per-frame using `u.frameId` (mirroring the
+   * CS_FILL_ANSWERS fan-out), then optimistically mutates the bidReport in
+   * the popup store: the field moves from `unmatchedFields` to `filled`
+   * with category `manual-pick`.
+   */
+  onPickUnmatched: (u: AutofillUnmatchedField, value: string) => Promise<void>;
+}
+
 /**
  * Trigger autofill on the current tab. Three-stage orchestration:
  *   1. Send a bid payload to the content script. The page is scanned, known
@@ -50,11 +63,14 @@ function computeYearsOfExperience(experience: MasterProfile['experience']): numb
  * The proposal step is optional. When the page has no cover-letter field
  * (detected during extraction), the user can bid without generating a
  * proposal at all — the autofill engine skips that category.
+ *
+ * Exposes `onPickUnmatched` alongside the trigger so the BidPanel can offer
+ * manual one-click picks for the fields the engine flagged as unmatched.
  */
-export function useAutofillBid(): () => Promise<void> {
+export function useAutofillBid(): UseAutofillBid {
   const { jd, resume, proposal, setBidReport, setError, setStep } = usePopupStore();
 
-  return useCallback(async () => {
+  const autofill = useCallback(async () => {
     if (!jd) {
       setError({
         code: 'UNKNOWN',
@@ -232,4 +248,68 @@ export function useAutofillBid(): () => Promise<void> {
       setStep('idle');
     }
   }, [jd, resume, proposal, setBidReport, setError, setStep]);
+
+  const onPickUnmatched = useCallback(
+    async (u: AutofillUnmatchedField, value: string): Promise<void> => {
+      if (!value) return;
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab?.id) {
+          setError({
+            code: 'AUTOFILL_FAILED',
+            message: 'No active tab. Open the bid page and try again.',
+          });
+          return;
+        }
+        const tabId = tab.id;
+
+        // Mirror the CS_FILL_ANSWERS routing: if the descriptor knows
+        // which frame it came from, target that frame directly so we never
+        // write into a sibling iframe's form. Without a frameId, fall back
+        // to fan-out (sendToTab default).
+        const result = await sendToTab(
+          tabId,
+          {
+            type: 'CS_FILL_UNMATCHED',
+            payload: { picks: [{ fieldKey: u.fieldKey, value }] },
+          },
+          typeof u.frameId === 'number' ? { frameId: u.frameId } : {},
+        );
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+
+        // Optimistically reflect the manual pick in the popup store so the
+        // UI updates without a re-run of the full autofill pass.
+        const current = usePopupStore.getState().bidReport;
+        if (!current) return;
+        const matchKey = u.fieldKey;
+        const matchFrame = u.frameId;
+        const next: AutofillReport = {
+          ...current,
+          unmatchedFields: current.unmatchedFields.filter(
+            (x) => !(x.fieldKey === matchKey && x.frameId === matchFrame),
+          ),
+          filled: [
+            ...current.filled,
+            {
+              category: 'manual-pick',
+              preview: value.length > 80 ? `${value.slice(0, 77)}…` : value,
+              selectorHint: u.selectorHint ?? u.label.slice(0, 60),
+            },
+          ],
+        };
+        setBidReport(next);
+      } catch (err) {
+        setError({
+          code: 'AUTOFILL_FAILED',
+          message: err instanceof Error ? err.message : 'Manual pick failed',
+        });
+      }
+    },
+    [setBidReport, setError],
+  );
+
+  return { autofill, onPickUnmatched };
 }

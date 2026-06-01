@@ -24,6 +24,7 @@ import type {
   AutofillFilled,
   AutofillPendingQuestion,
   AutofillReport,
+  AutofillUnmatchedField,
   BidPayload,
 } from '@/types/messages';
 
@@ -929,6 +930,46 @@ function matchReactSelectOption(
 }
 
 /**
+ * Open the react-select menu, mousedown the option whose text matches
+ * `optionText`, then close the menu. Extracted from `fillReactSelectWidget`
+ * so the second-pass `fillUnmatched` can target a known option without
+ * re-running the classifier.
+ *
+ * Returns the option text actually clicked, or null on miss / no menu.
+ */
+async function pickReactSelectOption(
+  widget: ReactSelectWidget,
+  optionText: string,
+): Promise<string | null> {
+  // 1. Open the menu.
+  widget.input.focus();
+  dispatchMouseSequence(widget.control);
+  const menu = await waitForReactSelectMenu(widget);
+  if (!menu) {
+    widget.input.blur();
+    return null;
+  }
+  const options = readReactSelectOptions(menu);
+  if (options.length === 0) {
+    widget.input.blur();
+    return null;
+  }
+
+  // 2. Find the option by text (use the same match ladder so chips chosen
+  // from a synonym still hit the right row).
+  const pick = matchReactSelectOption(options, optionText);
+  if (!pick) {
+    widget.input.blur();
+    return null;
+  }
+
+  // 3. Mousedown commits the selection in react-select v5.
+  dispatchMouseSequence(pick.el);
+  await wait(16);
+  return pick.text;
+}
+
+/**
  * Open the menu, find the option matching `desired`, mousedown it. Returns
  * the actual text written, or null if nothing matched.
  *
@@ -1079,18 +1120,27 @@ function pickReactSelectDefault(
  * Run the react-select pass over every widget on the page. Sequential,
  * not parallel — opening multiple menus at once causes race conditions
  * where the first menu collapses before its option is clicked.
+ *
+ * Failed widgets are returned as AutofillUnmatchedField descriptors keyed
+ * by their index in `findReactSelectWidgets()` — the popup can offer the
+ * user a manual pick that re-runs the same lookup. Note that `options` is
+ * intentionally omitted: peeking at the menu requires opening it, which
+ * causes a visible flicker on the page. The popup falls back to the
+ * "open the page and fill manually" hint for react-select misses.
  */
 async function autofillReactSelects(data: BidPayload): Promise<{
   filled: AutofillFilled[];
   totalFields: number;
-  unmatched: number;
+  unmatched: AutofillUnmatchedField[];
+  pendingQuestions: AutofillPendingQuestion[];
 }> {
   const widgets = findReactSelectWidgets();
   const filled: AutofillFilled[] = [];
-  let unmatched = 0;
+  const unmatched: AutofillUnmatchedField[] = [];
   const writtenOnce = new Set<Category>();
 
-  for (const widget of widgets) {
+  for (let widgetIndex = 0; widgetIndex < widgets.length; widgetIndex += 1) {
+    const widget = widgets[widgetIndex]!;
     // Synthesize a ClassifiedField using the existing matcher layer.
     const haystack = [
       widget.input.name ?? '',
@@ -1120,10 +1170,18 @@ async function autofillReactSelects(data: BidPayload): Promise<{
         selectorHint: widget.labelText.slice(0, 60),
       });
     } else {
-      unmatched += 1;
+      unmatched.push({
+        fieldKey: `rs:${widgetIndex}`,
+        label: widget.labelText,
+        fieldKind: 'react-select',
+        selectorHint: widget.labelText.slice(0, 60),
+        // `options` deliberately omitted — opening the menu just to peek
+        // would flicker the page.
+        reason: category === 'unknown' ? 'no-classification' : 'no-value',
+      });
     }
   }
-  return { filled, totalFields: widgets.length, unmatched };
+  return { filled, totalFields: widgets.length, unmatched, pendingQuestions: [] };
 }
 
 // ---------- native radio groups + Yes/No button groups ----------
@@ -1531,11 +1589,12 @@ function pickGroupDefault(labelText: string, optionTexts: string[]): string | nu
 function autofillChoiceGroups(data: BidPayload): {
   filled: AutofillFilled[];
   totalFields: number;
-  unmatched: number;
+  unmatched: AutofillUnmatchedField[];
+  pendingQuestions: AutofillPendingQuestion[];
 } {
   const groups = [...findNativeRadioGroups(), ...findButtonGroups()];
   const filled: AutofillFilled[] = [];
-  let unmatched = 0;
+  const unmatched: AutofillUnmatchedField[] = [];
   const writtenOnce = new Set<Category>();
 
   for (const group of groups) {
@@ -1618,10 +1677,17 @@ function autofillChoiceGroups(data: BidPayload): {
         selectorHint: group.groupLabel.slice(0, 60) || group.key,
       });
     } else {
-      unmatched += 1;
+      unmatched.push({
+        fieldKey: group.key,
+        label: group.groupLabel,
+        fieldKind: group.key.startsWith('radio:') ? 'radio' : 'button-group',
+        selectorHint: group.groupLabel.slice(0, 60) || group.key,
+        options: group.options.map((o) => o.text).filter((t) => t.length > 0),
+        reason: category === 'unknown' ? 'no-classification' : 'no-value',
+      });
     }
   }
-  return { filled, totalFields: groups.length, unmatched };
+  return { filled, totalFields: groups.length, unmatched, pendingQuestions: [] };
 }
 
 /** Hard cap on per-frame LLM questions — keeps the batch tractable. */
@@ -1836,22 +1902,57 @@ function fillSelectField(
  * top — together they cover both legacy (Lever, old Greenhouse boards)
  * and the new job-boards.greenhouse.io React UI.
  */
-function autofillNativeFields(data: BidPayload): AutofillReport {
+function autofillNativeFields(data: BidPayload): {
+  filled: AutofillFilled[];
+  totalFields: number;
+  unmatched: AutofillUnmatchedField[];
+  pendingQuestions: AutofillPendingQuestion[];
+} {
   const candidates = selectAllFields();
   const filled: AutofillFilled[] = [];
   const pending: AutofillPendingQuestion[] = [];
-  let unmatched = 0;
+  const unmatched: AutofillUnmatchedField[] = [];
 
   const writtenOnce = new Set<Category>();
   const allowDuplicates = new Set<Category>(['cover-letter', 'summary']);
 
-  const queue = (q: AutofillPendingQuestion | null): void => {
+  /** Push an unmatched descriptor for an input/textarea at index `i`. */
+  const pushUnmatched = (
+    el: EditableField,
+    cls: ClassifiedField,
+    i: number,
+    reason: AutofillUnmatchedField['reason'],
+  ): void => {
+    const tag = el.tagName;
+    let kind: AutofillUnmatchedField['fieldKind'] = 'input';
+    if (tag === 'TEXTAREA') kind = 'textarea';
+    else if (tag === 'SELECT') kind = 'select';
+    const desc: AutofillUnmatchedField = {
+      fieldKey: `native:${i}`,
+      label: cls.labelText || cls.hint,
+      fieldKind: kind,
+      selectorHint: cls.hint,
+      reason,
+    };
+    if (tag === 'SELECT') {
+      desc.options = getSelectOptionTexts(el as HTMLSelectElement);
+    }
+    unmatched.push(desc);
+  };
+
+  const queue = (
+    q: AutofillPendingQuestion | null,
+    el: EditableField,
+    cls: ClassifiedField,
+    i: number,
+  ): void => {
     if (!q) {
-      unmatched += 1;
+      // Not question-shaped or not a queueable kind — surface for manual pick.
+      pushUnmatched(el, cls, i, cls.category === 'unknown' ? 'no-classification' : 'no-value');
       return;
     }
     if (pending.length >= MAX_PENDING_PER_FRAME) {
-      unmatched += 1;
+      pushUnmatched(el, cls, i, 'over-cap');
       return;
     }
     pending.push(q);
@@ -1888,14 +1989,19 @@ function autofillNativeFields(data: BidPayload): AutofillReport {
           selectorHint: cls.hint,
         });
       } else {
-        unmatched += 1;
+        pushUnmatched(
+          el,
+          cls,
+          i,
+          cls.category === 'unknown' ? 'no-classification' : 'option-mismatch',
+        );
       }
       continue;
     }
 
     // ----- INPUT / TEXTAREA path: existing logic, may queue for LLM -----
     if (cls.category === 'unknown') {
-      queue(queueAsLLMQuestion(el, cls, i));
+      queue(queueAsLLMQuestion(el, cls, i), el, cls, i);
       continue;
     }
     if (writtenOnce.has(cls.category) && !allowDuplicates.has(cls.category)) continue;
@@ -1904,13 +2010,13 @@ function autofillNativeFields(data: BidPayload): AutofillReport {
     if (!value) {
       // Matcher hit but the user has no value — queue the textarea/input
       // for LLM Q&A (selects already returned above).
-      queue(queueAsLLMQuestion(el, cls, i));
+      queue(queueAsLLMQuestion(el, cls, i), el, cls, i);
       continue;
     }
 
     const ok = writeField(cls, value);
     if (!ok) {
-      queue(queueAsLLMQuestion(el, cls, i));
+      queue(queueAsLLMQuestion(el, cls, i), el, cls, i);
       continue;
     }
 
@@ -1927,7 +2033,6 @@ function autofillNativeFields(data: BidPayload): AutofillReport {
     totalFields: candidates.length,
     unmatched,
     pendingQuestions: pending,
-    ranAt: new Date().toISOString(),
   };
 }
 
@@ -1960,8 +2065,12 @@ export async function autofillBidForm(data: BidPayload): Promise<AutofillReport>
     return {
       filled: [...native.filled, ...choice.filled, ...react.filled],
       totalFields: native.totalFields + choice.totalFields + react.totalFields,
-      unmatched: native.unmatched + choice.unmatched + react.unmatched,
-      pendingQuestions: native.pendingQuestions,
+      unmatchedFields: [...native.unmatched, ...choice.unmatched, ...react.unmatched],
+      pendingQuestions: [
+        ...native.pendingQuestions,
+        ...choice.pendingQuestions,
+        ...react.pendingQuestions,
+      ],
       ranAt: new Date().toISOString(),
     };
   } finally {
@@ -1994,4 +2103,111 @@ export function fillAnswers(answers: Array<{ fieldIndex: number; answer: string 
     }
   }
   return filled;
+}
+
+/**
+ * Third-pass writer: apply user-chosen values for fields the engine flagged
+ * as `unmatchedFields` on the first pass. Picks are dispatched by
+ * `fieldKey` prefix so each pass's id space stays isolated:
+ *
+ *   - `native:<i>`   — write through the native-input/select writer
+ *   - `radio:<name>` — re-find the radio group, click the option whose text
+ *                      matches via `findOptionMatch`
+ *   - `buttons:<idx>` — re-find the button group, same dispatch as radio
+ *   - `rs:<i>`       — re-find the react-select widget, open + pick + close
+ *
+ * Wrapped in the same submit-blocking guard as `autofillBidForm` so a
+ * synthetic click on a typeless `<button>` doesn't submit the form
+ * mid-fill. Returns the count of fields actually written.
+ */
+export async function fillUnmatched(
+  picks: Array<{ fieldKey: string; value: string }>,
+): Promise<{ filled: number }> {
+  const blockSubmit = (e: Event): void => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  document.addEventListener('submit', blockSubmit, true);
+  try {
+    let filled = 0;
+    for (const { fieldKey, value } of picks) {
+      if (!value) continue;
+      if (fieldKey.startsWith('native:')) {
+        const idx = Number(fieldKey.slice('native:'.length));
+        if (!Number.isFinite(idx)) continue;
+        const el = selectAllFields()[idx];
+        if (!el) continue;
+        if (el.disabled || (el as HTMLInputElement).readOnly) continue;
+        if (el.tagName === 'SELECT') {
+          if (setSelectValue(el as HTMLSelectElement, value)) filled += 1;
+        } else if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+          setNativeInputValue(el as HTMLInputElement | HTMLTextAreaElement, value);
+          filled += 1;
+        }
+        continue;
+      }
+
+      if (fieldKey.startsWith('radio:')) {
+        const groups = findNativeRadioGroups();
+        const group = groups.find((g) => g.key === fieldKey);
+        if (!group) continue;
+        const chosenIdx = findOptionMatch(group.options, value);
+        if (chosenIdx < 0) continue;
+        const target = group.options[chosenIdx]!.el;
+        try {
+          dispatchMouseSequence(target);
+        } catch {
+          try {
+            target.click();
+          } catch {
+            /* ignore */
+          }
+        }
+        if (target.tagName === 'INPUT') {
+          target.dispatchEvent(new Event('input', { bubbles: true }));
+          target.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        filled += 1;
+        continue;
+      }
+
+      if (fieldKey.startsWith('buttons:')) {
+        const groups = findButtonGroups();
+        const group = groups.find((g) => g.key === fieldKey);
+        if (!group) continue;
+        const chosenIdx = findOptionMatch(group.options, value);
+        if (chosenIdx < 0) continue;
+        const target = group.options[chosenIdx]!.el;
+        try {
+          dispatchMouseSequence(target);
+        } catch {
+          try {
+            target.click();
+          } catch {
+            /* ignore */
+          }
+        }
+        if (target.tagName === 'INPUT') {
+          target.dispatchEvent(new Event('input', { bubbles: true }));
+          target.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        filled += 1;
+        continue;
+      }
+
+      if (fieldKey.startsWith('rs:')) {
+        const idx = Number(fieldKey.slice('rs:'.length));
+        if (!Number.isFinite(idx)) continue;
+        const widgets = findReactSelectWidgets();
+        const widget = widgets[idx];
+        if (!widget) continue;
+        const written = await pickReactSelectOption(widget, value);
+        if (written) filled += 1;
+        continue;
+      }
+    }
+    return { filled };
+  } finally {
+    document.removeEventListener('submit', blockSubmit, true);
+  }
 }

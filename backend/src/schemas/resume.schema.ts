@@ -87,7 +87,12 @@ export const ResumeMetaSchema = z.object({
 });
 
 export const ResumeJsonSchema = z.object({
-  meta: ResumeMetaSchema,
+  // The model no longer emits `meta` — the ATS post-pass constructs it
+  // deterministically (schemaVersion, templateId, generatedAt) from inputs
+  // we already trust. Marking it optional here keeps the schema honest about
+  // what the LLM is asked to produce while still allowing fully-stamped
+  // resumes (post-ATS) to round-trip through validation.
+  meta: ResumeMetaSchema.optional(),
   contact: ResumeContactSchema,
   targetTitle: z.string().min(1).max(120),
   summary: z.string().min(40).max(800),

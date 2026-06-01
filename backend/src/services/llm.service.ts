@@ -12,8 +12,8 @@
  * Notes on structured output across providers via OpenRouter:
  *   - `response_format: { type: 'json_object' }` is supported by every model
  *     OpenRouter routes to — guarantees parseable JSON but NOT schema shape.
- *   - Anthropic-specific `output_config.format` and `cache_control` do NOT
- *     pass through OpenRouter; we don't use them here.
+ *   - Anthropic `cache_control` IS supported via OpenRouter for Anthropic
+ *     models, but is not yet wired here (future work).
  *   - Schema conformance is therefore enforced in two layers:
  *       (a) the schema spec embedded in each prompt module's system prompt,
  *       (b) Zod validation + corrective retry below.
@@ -98,7 +98,7 @@ export async function jsonCompletion<TOut, TDef extends ZodTypeDef, TIn>(
   args: JsonCompletionArgs<TOut, TDef, TIn>,
 ): Promise<TOut> {
   const model = args.model ?? config.llm.models.default;
-  const maxTokens = args.maxTokens ?? DEFAULT_MAX_TOKENS;
+  let maxTokens = args.maxTokens ?? DEFAULT_MAX_TOKENS;
   const temperature = args.temperature ?? 0.3;
   const maxAttempts = 1 + (args.maxValidationRetries ?? config.llm.maxValidationRetries);
 
@@ -138,6 +138,19 @@ export async function jsonCompletion<TOut, TDef extends ZodTypeDef, TIn>(
     );
 
     if (response.choices[0]?.finish_reason === 'length') {
+      // On the first attempt only, recover by bumping the token ceiling and
+      // continuing the conversation with the partial assistant output. Any
+      // truncation on a later attempt (or with no retries left) is fatal.
+      if (attempt === 1 && attempt < maxAttempts) {
+        const bumped = Math.floor(Math.min(maxTokens * 1.5, 8192));
+        logger.warn(
+          { label: args.label, attempt, previousMaxTokens: maxTokens, newMaxTokens: bumped },
+          'llm.jsonCompletion truncated at max_tokens — bumping limit and retrying',
+        );
+        maxTokens = bumped;
+        messages.push({ role: 'assistant', content: raw });
+        continue;
+      }
       throw new HttpError(
         422,
         'AI_INVALID_OUTPUT',
@@ -194,6 +207,11 @@ export async function jsonCompletion<TOut, TDef extends ZodTypeDef, TIn>(
     );
 
     // Feed the failure back to the model with structured issues.
+    // Bound the payload so it doesn't accumulate across retry attempts.
+    const issuesSummary = validation.error.issues
+      .slice(0, 5)
+      .map((i) => `path: ${i.path.join('.')}; msg: ${i.message}`)
+      .join('\n');
     messages.push({ role: 'assistant', content: raw });
     messages.push({
       role: 'user',
@@ -202,9 +220,7 @@ export async function jsonCompletion<TOut, TDef extends ZodTypeDef, TIn>(
         'Output ONLY the JSON object — no prose, no markdown, no code fences.',
         '',
         'Validation issues:',
-        '```json',
-        JSON.stringify(validation.error.flatten(), null, 2),
-        '```',
+        issuesSummary,
       ].join('\n'),
     });
   }

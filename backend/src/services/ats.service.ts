@@ -38,10 +38,13 @@ function dedupeSkills(skills: ResumeSkills): ResumeSkills {
 }
 
 export function applyAtsRules(resume: ResumeJson, templateId: string): ResumeJson {
+  // Build `meta` from scratch — the LLM no longer emits this field, so there
+  // is nothing to spread from `resume.meta`. Everything we need is either a
+  // compile-time constant (schemaVersion), an explicit caller-provided input
+  // (templateId), or computed here (generatedAt).
   return {
     ...resume,
     meta: {
-      ...resume.meta,
       schemaVersion: RESUME_SCHEMA_VERSION,
       templateId,
       generatedAt: new Date().toISOString(),

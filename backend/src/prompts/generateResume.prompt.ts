@@ -373,17 +373,12 @@ export interface ResumePromptInput {
  * phrases, the final quality check) still applies verbatim.
  */
 function buildUser(input: ResumePromptInput): string {
-  const generatedAt = new Date().toISOString();
   return [
     'Generate the tailored resume JSON for the candidate below.',
     '',
-    `Template id (echo into meta.templateId): ${input.templateId}`,
-    `Generated at (echo into meta.generatedAt): ${generatedAt}`,
-    `Source job URL (echo into meta.sourceJobUrl): ${input.jd.url}`,
-    '',
     'CANDIDATE MASTER PROFILE (source of truth — do not invent beyond this):',
     '```json',
-    JSON.stringify(input.masterProfile, null, 2),
+    JSON.stringify(input.masterProfile),
     '```',
     '',
     'JOB DESCRIPTION (analyze internally per the HIDDEN JD ANALYSIS rules from the system message, then tailor the resume):',
@@ -404,7 +399,6 @@ function buildUser(input: ResumePromptInput): string {
     '',
     'JSON SCHEMA (use these key names and shapes EXACTLY):',
     '{',
-    '  "meta":    { "schemaVersion": "1.0.0", "templateId": string, "generatedAt": string, "sourceJobUrl": string },',
     '  "contact": { "fullName": string, "email": string, "phone"?: string, "location"?: string, "website"?: string, "linkedin"?: string, "github"?: string },',
     '  "targetTitle": string,',
     '  "summary": string,',
@@ -416,11 +410,10 @@ function buildUser(input: ResumePromptInput): string {
     '  "extras":         [{ "heading": string, "items": string[] }]',
     '}',
     '',
-    'REQUIRED meta FIELDS (all must be present, exact strings):',
-    '- meta.schemaVersion MUST equal the exact string "1.0.0"',
-    `- meta.templateId    MUST equal: ${input.templateId}`,
-    `- meta.generatedAt   MUST equal: ${generatedAt}`,
-    `- meta.sourceJobUrl  MUST equal: ${input.jd.url}`,
+    'DO NOT emit a "meta" field. The meta object (schemaVersion, templateId,',
+    'generatedAt, sourceJobUrl) is stamped server-side after generation; emitting',
+    'it from the model would be ignored and is forbidden. Emit every other top-level',
+    'key in the schema above.',
     '',
     'ALL SEVEN skills buckets MUST be present in the JSON as arrays, even if the',
     'JD does not call for some of them — emit [] for any bucket you would otherwise',
@@ -458,7 +451,7 @@ function buildUser(input: ResumePromptInput): string {
 }
 
 export const generateResumePrompt: PromptModule<ResumePromptInput> = {
-  version: 'generate-resume@2026-05-31.v9-user-side-json',
+  version: 'generate-resume@2026-05-31.v10-user-side-json-no-meta-echo',
   build: (input): PromptOutput => ({
     system: SYSTEM,
     user: buildUser(input),

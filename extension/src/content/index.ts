@@ -1,10 +1,11 @@
 /**
  * Content script entry point.
  *
- * Handles three CS_* messages from the popup:
+ * Handles four CS_* messages from the popup:
  *   - CS_EXTRACT_JD     — read the active page's job description + detect cover-letter field
  *   - CS_AUTOFILL_BID   — fill known categories, return unmatched questions for LLM Q&A
  *   - CS_FILL_ANSWERS   — write the LLM-generated answers back into the page
+ *   - CS_FILL_UNMATCHED — write user-picked values back into the previously unmatched fields
  *
  * Stays passive otherwise — never mutates the page until an explicit request
  * arrives, never shows UI.
@@ -14,10 +15,11 @@ import type {
   AutofillBidMessage,
   ExtractJdMessage,
   FillAnswersMessage,
+  FillUnmatchedMessage,
   MessageResult,
 } from '@/types/messages';
 import { createLogger } from '@/utils/logger';
-import { autofillBidForm, fillAnswers } from './autofill';
+import { autofillBidForm, fillAnswers, fillUnmatched } from './autofill';
 import { extractJobDescription } from './extractor';
 
 const log = createLogger('content');
@@ -54,7 +56,7 @@ async function handleAutofill(
     log.info('autofill pass 1 complete', {
       filled: report.filled.length,
       totalFields: report.totalFields,
-      unmatched: report.unmatched,
+      unmatched: report.unmatchedFields.length,
       pendingQuestions: report.pendingQuestions.length,
     });
     sendResponse({ ok: true, data: report });
@@ -90,12 +92,34 @@ function handleFillAnswers(
   }
 }
 
+async function handleFillUnmatched(
+  msg: FillUnmatchedMessage,
+  sendResponse: (r: MessageResult<'CS_FILL_UNMATCHED'>) => void,
+): Promise<void> {
+  try {
+    const result = await fillUnmatched(msg.payload.picks);
+    log.info('autofill pass 3 complete', { picksWritten: result.filled });
+    sendResponse({ ok: true, data: result });
+  } catch (err) {
+    log.error('fill-unmatched threw', err);
+    sendResponse({
+      ok: false,
+      error: {
+        code: 'AUTOFILL_FAILED',
+        message: err instanceof Error ? err.message : 'Filling unmatched failed',
+      },
+    });
+  }
+}
+
 chrome.runtime.onMessage.addListener(
   (
     message: AppMessage,
     _sender,
     sendResponse: (
-      response: MessageResult<'CS_EXTRACT_JD' | 'CS_AUTOFILL_BID' | 'CS_FILL_ANSWERS'>,
+      response: MessageResult<
+        'CS_EXTRACT_JD' | 'CS_AUTOFILL_BID' | 'CS_FILL_ANSWERS' | 'CS_FILL_UNMATCHED'
+      >,
     ) => void,
   ): boolean => {
     if (message.type === 'CS_EXTRACT_JD') {
@@ -111,6 +135,15 @@ chrome.runtime.onMessage.addListener(
     if (message.type === 'CS_FILL_ANSWERS') {
       handleFillAnswers(message, sendResponse as (r: MessageResult<'CS_FILL_ANSWERS'>) => void);
       return false;
+    }
+    if (message.type === 'CS_FILL_UNMATCHED') {
+      // Async — the react-select branch awaits menu animations. Return true
+      // to keep the message channel open until sendResponse fires.
+      void handleFillUnmatched(
+        message,
+        sendResponse as (r: MessageResult<'CS_FILL_UNMATCHED'>) => void,
+      );
+      return true;
     }
     return false;
   },

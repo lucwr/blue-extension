@@ -75,7 +75,7 @@ export const App: FC = () => {
   const extract = useExtraction();
   const generateResume = useGenerateResume();
   const generateProposal = useGenerateProposal();
-  const autofillBid = useAutofillBid();
+  const { autofill: autofillBid, onPickUnmatched } = useAutofillBid();
 
   const busy = step !== 'idle';
   const hasContent = Boolean(jd ?? resume ?? proposal ?? bidReport);
@@ -209,6 +209,7 @@ export const App: FC = () => {
               busy={step === 'auto-filling' || step === 'answering-questions'}
               answeringQuestions={step === 'answering-questions'}
               onBid={() => void autofillBid()}
+              onPickUnmatched={(u, value) => void onPickUnmatched(u, value)}
             />
           </>
         ) : (

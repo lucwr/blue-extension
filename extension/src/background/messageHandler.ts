@@ -149,6 +149,7 @@ export async function dispatch(message: AppMessage): Promise<MessageResult<AppMe
     case 'CS_EXTRACT_JD':
     case 'CS_AUTOFILL_BID':
     case 'CS_FILL_ANSWERS':
+    case 'CS_FILL_UNMATCHED':
       // CS_* messages travel popup → tab directly via sendToTab. Surface a
       // clear error if one ever lands here by mistake.
       return {
