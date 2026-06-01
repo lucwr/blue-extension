@@ -218,6 +218,53 @@ function renderBulletList(
   }
 }
 
+/**
+ * Largest scale factor in [minScale, 1.0] at which the four-part role-header
+ * line (bold company + italic role + right-aligned date/location) fits within
+ * `availableWidth`. Steps DOWN from 1.0 by `step` until either the line fits
+ * or we hit `minScale`. If even `minScale` is too wide, returns `minScale`
+ * (jsPDF will then wrap — still better than wrapping at the default size,
+ * which can split mid-token like "AI 04/2024").
+ *
+ * Why scale (instead of shrinking only the role/title chunk): the line mixes
+ * four different styles at two different sizes. Scaling all four chunks by
+ * the same factor preserves the relative visual hierarchy (company stays
+ * bolder/bigger than the date) while guaranteeing the width math is linear.
+ */
+function fitRoleHeaderScale(
+  pdf: jsPDF,
+  t: ResumeTemplate,
+  leftCompany: string,
+  leftRole: string,
+  rightSide: string,
+  availableWidth: number,
+  minScale = 0.75,
+  step = 0.025,
+): number {
+  // Measure each chunk once at its base style; chunk widths scale linearly
+  // with font size, so width(scale) = width(1.0) * scale.
+  applyStyle(pdf, t.styles.company);
+  const wCompany = pdf.getTextWidth(leftCompany);
+  applyStyle(pdf, t.styles.role);
+  const wRole = pdf.getTextWidth(leftRole);
+  applyStyle(pdf, t.styles.date);
+  const wRight = pdf.getTextWidth(rightSide);
+
+  const baseTotal = wCompany + wRole + wRight;
+  if (baseTotal <= availableWidth) return 1.0;
+
+  // Step DOWN from 1.0 by `step` until the scaled total fits or we hit minScale.
+  for (let scale = 1.0 - step; scale >= minScale; scale -= step) {
+    if (baseTotal * scale <= availableWidth) return scale;
+  }
+  return minScale;
+}
+
+/** Scale every numeric `size` on a TextStyle by `factor` (family/weight unchanged). */
+function scaleStyle(style: TextStyle, factor: number): TextStyle {
+  return { family: style.family, size: style.size * factor, weight: style.weight };
+}
+
 function renderExperience(
   pdf: jsPDF,
   t: ResumeTemplate,
@@ -227,24 +274,43 @@ function renderExperience(
   if (experience.length === 0) return;
   renderSectionHeading(pdf, t, c, 'Work Experience');
 
+  const available = contentWidth(t);
+
   for (const role of experience) {
     ensureSpace(pdf, t, c, t.spacing.beforeSectionGuard);
 
     // Role header — all on ONE line:
     //   [bold company][, italic role]                          [date | location]
-    applyStyle(pdf, t.styles.company);
-    pdf.text(role.company, t.page.marginX, c.y);
-    const companyW = pdf.getTextWidth(role.company);
-
-    applyStyle(pdf, t.styles.role);
-    pdf.text(`${t.separators.companyRoleJoin}${role.title}`, t.page.marginX + companyW, c.y);
-
-    applyStyle(pdf, t.styles.date);
+    //
+    // Compose the three chunks first so we can measure them, then pick the
+    // largest font scale at which they all fit on a single line. This avoids
+    // jsPDF wrapping the right-aligned date INTO the role text (the bug where
+    // "AI 04/2024" got mashed together mid-line).
+    const companyText = role.company;
+    const roleText = `${t.separators.companyRoleJoin}${role.title}`;
     const dateText = `${role.startDate}${t.separators.dateRange}${role.endDate}`;
     const rightSide = role.location
       ? `${dateText}${t.separators.dateLocationJoin}${role.location}`
       : dateText;
+
+    const scale = fitRoleHeaderScale(pdf, t, companyText, roleText, rightSide, available);
+
+    // Draw company (bold) at the scaled style. Measure width AT the scaled
+    // style so the role chunk that follows starts at the correct x.
+    applyStyle(pdf, scaleStyle(t.styles.company, scale));
+    pdf.text(companyText, t.page.marginX, c.y);
+    const companyW = pdf.getTextWidth(companyText);
+
+    // Draw role (italic) at the scaled style.
+    applyStyle(pdf, scaleStyle(t.styles.role, scale));
+    pdf.text(roleText, t.page.marginX + companyW, c.y);
+
+    // Draw the right-aligned date/location at the scaled style.
+    applyStyle(pdf, scaleStyle(t.styles.date, scale));
     pdf.text(rightSide, t.page.width - t.page.marginX, c.y, { align: 'right' });
+
+    // No font restore needed — `renderBulletList` below calls applyStyle()
+    // with t.styles.bullet (the unscaled bullet style) before drawing.
     c.y += t.spacing.afterRoleHeader;
 
     renderBulletList(pdf, t, c, role.bullets);
