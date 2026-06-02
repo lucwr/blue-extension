@@ -151,6 +151,8 @@ export const BidPreferencesSchema = z.object({
   highestDegree: z.string().max(120).default(''),
   /** Defaults to 'yes' since most candidates are 18+. */
   over18: z.enum(['yes', 'no', 'prefer-not-to-say', '']).default('yes'),
+  /** Age range bucket (e.g. "30-35"), matched against radio options. */
+  ageRange: z.string().max(40).default(''),
 });
 export type BidPreferences = z.infer<typeof BidPreferencesSchema>;
 

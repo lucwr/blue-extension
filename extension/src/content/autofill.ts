@@ -65,6 +65,7 @@ type Category =
   | 'salary-expectation'
   | 'highest-degree'
   | 'age-over-18'
+  | 'age-range'
   | 'unknown';
 
 interface ClassifiedField {
@@ -194,6 +195,14 @@ const MATCHERS: ReadonlyArray<{ category: Category; re: RegExp; weight: number }
     category: 'age-over-18',
     re: /\b(18[-_ ]?(years?[-_ ]?of[-_ ]?age|years?[-_ ]?old|or[-_ ]?older|or[-_ ]?over|\+)|of[-_ ]?legal[-_ ]?(working[-_ ]?)?age|at[-_ ]?least[-_ ]?18|over[-_ ]?18|minimum[-_ ]?age)\b/,
     weight: 110,
+  },
+  // "What is your age range?" — picks the user's saved bucket (e.g. "30-35").
+  // Weight above age-over-18 so verbose labels that mention both win this
+  // category; demographics.age-over-18 stays handled by the simpler regex.
+  {
+    category: 'age-range',
+    re: /\b(age[-_ ]?(range|bracket|group)|how[-_ ]?old[-_ ]?are[-_ ]?you|date[-_ ]?of[-_ ]?birth|year[-_ ]?of[-_ ]?birth|dob|birthdate)\b/,
+    weight: 125,
   },
 
   // Years of experience
@@ -532,6 +541,8 @@ function valueForCategory(category: Category, data: BidPayload): string {
       return data.bidPreferences?.highestDegree ?? '';
     case 'age-over-18':
       return yesNoLabel(data.bidPreferences?.over18 ?? 'yes');
+    case 'age-range':
+      return data.bidPreferences?.ageRange ?? '';
     case 'unknown':
     default:
       return '';
@@ -565,18 +576,12 @@ function setNativeInputValue(el: HTMLInputElement | HTMLTextAreaElement, value: 
  * trailing punctuation). The matcher fires when the input AND an option
  * each map to the same canonical form.
  */
+// IMPORTANT: NO comes BEFORE YES. Sentences like "I do not identify…" match
+// the yes pattern /^i do\b/ on "do" before "not" is even considered. By
+// checking no patterns first, the more-specific "i do not" / "i did not" /
+// "i don't" forms canonicalize correctly to "no" instead of accidentally
+// being labelled "yes".
 const OPTION_SYNONYMS: ReadonlyArray<{ canonical: string; variants: RegExp[] }> = [
-  {
-    canonical: 'yes',
-    variants: [
-      /^y$/,
-      /^yes\b/,
-      /^true$/,
-      /^affirmative$/,
-      /^i (am|do|have|will|consent|agree)\b/,
-      /^yes,?\s/,
-    ],
-  },
   {
     canonical: 'no',
     variants: [
@@ -588,9 +593,28 @@ const OPTION_SYNONYMS: ReadonlyArray<{ canonical: string; variants: RegExp[] }> 
       /^i'm not\b/,
       /^no,?\s/,
       /^not (a |at this time|currently|yet|today|in the (past|future)|interested)\b/,
+      // EEO-specific: "Not Hispanic or Latino" is the No-equivalent on the
+      // old US-EEO 2-question race form. Without this, "no" had no canonical
+      // match and the contains-fallback would mis-match "Hispanic or Latino"
+      // via the substring "latino" → "no".
+      /^not hispanic\b/,
+      /^not latino\b/,
       /^never\b/,
       /^none\b/,
       /^disagree\b/,
+    ],
+  },
+  {
+    canonical: 'yes',
+    variants: [
+      /^y$/,
+      /^yes\b/,
+      /^true$/,
+      /^affirmative$/,
+      // "i do not / i don't" canonicalize to "no" via the rule above, which
+      // is checked FIRST so this pattern can't accidentally swallow them.
+      /^i (am|do|have|will|consent|agree)\b/,
+      /^yes,?\s/,
     ],
   },
   {
@@ -638,6 +662,22 @@ function canonicalOf(s: string): string | null {
 }
 
 /**
+ * Should the contains-match steps in the match ladders be SKIPPED for this
+ * input value? True when the value is a short yes/no token whose substring
+ * appears inside unrelated EEO option texts — e.g. "no" inside "Hispanic or
+ * Latino" via the trailing "latino" → "no", or "yes" inside "yesterday".
+ *
+ * For those, only exact / value / canonical / synonym matches are safe;
+ * contains and reverse-contains create false positives that route the
+ * wrong demographic answer onto an unrelated dropdown.
+ */
+function shouldSkipContains(value: string, canonical: string | null): boolean {
+  const norm = normalizeForMatch(value);
+  if (norm.length > 3) return false;
+  return canonical === 'yes' || canonical === 'no';
+}
+
+/**
  * Pick the option whose text best matches `value` and set the select's
  * selectedIndex. Match ladder, broadest first to most permissive last:
  *   1. Exact normalized text equality
@@ -675,13 +715,13 @@ function setSelectValue(el: HTMLSelectElement, value: string): boolean {
   if (!hit && inputCanonical) {
     hit = candidates.find((c) => canonicalOf(c.opt.textContent ?? '') === inputCanonical);
   }
-  // 4. Option text contains input
-  if (!hit) hit = candidates.find((c) => c.text.includes(norm));
-  // 5. Input value contains option text — but only for option texts that
-  // are at least 2 chars to avoid matching one-letter abbreviations.
-  if (!hit) hit = candidates.find((c) => c.text.length >= 2 && norm.includes(c.text));
-  // 6. Token prefix — "yes" → "Yes, …", "no" → "No, …"
-  if (!hit) hit = candidates.find((c) => c.text.startsWith(`${norm} `));
+  // 4, 5, 6 — substring fallbacks. Skip them for short yes/no tokens to
+  // avoid e.g. "no" matching "Hispanic or Latino" via the "latino" → "no"
+  // substring.
+  const skipContains = shouldSkipContains(value, inputCanonical);
+  if (!hit && !skipContains) hit = candidates.find((c) => c.text.includes(norm));
+  if (!hit && !skipContains) hit = candidates.find((c) => c.text.length >= 2 && norm.includes(c.text));
+  if (!hit && !skipContains) hit = candidates.find((c) => c.text.startsWith(`${norm} `));
 
   if (!hit) return false;
 
@@ -916,15 +956,18 @@ function matchReactSelectOption(
       if (canonicalOf(o.text) === inputCanonical) return o;
     }
   }
-  for (const o of options) {
-    if (normalizeForMatch(o.text).includes(norm)) return o;
-  }
-  for (const o of options) {
-    const t = normalizeForMatch(o.text);
-    if (t.length >= 2 && norm.includes(t)) return o;
-  }
-  for (const o of options) {
-    if (normalizeForMatch(o.text).startsWith(`${norm} `)) return o;
+  // Substring fallbacks — skipped for short yes/no tokens (see shouldSkipContains).
+  if (!shouldSkipContains(value, inputCanonical)) {
+    for (const o of options) {
+      if (normalizeForMatch(o.text).includes(norm)) return o;
+    }
+    for (const o of options) {
+      const t = normalizeForMatch(o.text);
+      if (t.length >= 2 && norm.includes(t)) return o;
+    }
+    for (const o of options) {
+      if (normalizeForMatch(o.text).startsWith(`${norm} `)) return o;
+    }
   }
   return null;
 }
@@ -1315,6 +1358,56 @@ function findNativeRadioGroups(): ChoiceGroup[] {
   return groups;
 }
 
+/**
+ * Group native <input type="checkbox"> elements by name attribute, the same
+ * way findNativeRadioGroups does. Each group is treated as one ChoiceGroup
+ * so it flows through autofillChoiceGroups uniformly — classify by group
+ * label, match the user's value against option labels, click the matching
+ * checkbox(es). For "select all that apply" groups where the user has a
+ * single value (e.g. demographics.race = "White"), only the matching
+ * checkbox is clicked; siblings stay unchecked, which is the intended
+ * behaviour. Standalone checkboxes without a `name` attribute are skipped
+ * (they're usually one-off consent boxes).
+ */
+function findNativeCheckboxGroups(): ChoiceGroup[] {
+  const boxes = Array.from(
+    document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+  ).filter((c) => {
+    if (c.disabled) return false;
+    if (!c.name) return false;
+    if (isVisible(c)) return true;
+    if (c.parentElement && isVisible(c.parentElement)) return true;
+    return false;
+  });
+
+  const byName = new Map<string, HTMLInputElement[]>();
+  for (const c of boxes) {
+    if (!byName.has(c.name)) byName.set(c.name, []);
+    byName.get(c.name)!.push(c);
+  }
+
+  const groups: ChoiceGroup[] = [];
+  for (const [name, members] of byName) {
+    const first = members[0];
+    if (!first) continue;
+    const groupLabel = findRadioGroupLabel(first);
+    // Use the same label-finder helpers as radios — checkbox-and-label
+    // patterns are identical at the DOM level (label[for=id], wrapping
+    // <label>, aria-label, value, name).
+    const options = members.map((c) => ({
+      el: c as HTMLElement,
+      text: optionLabelForRadio(c),
+    }));
+    groups.push({
+      key: `checkbox:${name}`,
+      groupLabel,
+      options,
+      anySelected: members.some((c) => c.checked),
+    });
+  }
+  return groups;
+}
+
 /** Best-effort label for a single radio: associated <label>, wrapping label, value, name. */
 function optionLabelForRadio(r: HTMLInputElement): string {
   // <label for="id">
@@ -1482,16 +1575,15 @@ function findOptionMatch(options: Array<{ text: string }>, value: string): numbe
     idx = options.findIndex((o) => canonicalOf(o.text) === inputCanonical);
     if (idx >= 0) return idx;
   }
-  // 3. Option text contains
+  // 3, 4, 5 — substring fallbacks, skipped for short yes/no tokens.
+  if (shouldSkipContains(value, inputCanonical)) return -1;
   idx = options.findIndex((o) => normalizeForMatch(o.text).includes(norm));
   if (idx >= 0) return idx;
-  // 4. Reverse contains
   idx = options.findIndex((o) => {
     const t = normalizeForMatch(o.text);
     return t.length >= 2 && norm.includes(t);
   });
   if (idx >= 0) return idx;
-  // 5. Token prefix
   idx = options.findIndex((o) => normalizeForMatch(o.text).startsWith(`${norm} `));
   return idx;
 }
@@ -1592,7 +1684,11 @@ function autofillChoiceGroups(data: BidPayload): {
   unmatched: AutofillUnmatchedField[];
   pendingQuestions: AutofillPendingQuestion[];
 } {
-  const groups = [...findNativeRadioGroups(), ...findButtonGroups()];
+  const groups = [
+    ...findNativeRadioGroups(),
+    ...findNativeCheckboxGroups(),
+    ...findButtonGroups(),
+  ];
   const filled: AutofillFilled[] = [];
   const unmatched: AutofillUnmatchedField[] = [];
   const writtenOnce = new Set<Category>();
@@ -1680,7 +1776,11 @@ function autofillChoiceGroups(data: BidPayload): {
       unmatched.push({
         fieldKey: group.key,
         label: group.groupLabel,
-        fieldKind: group.key.startsWith('radio:') ? 'radio' : 'button-group',
+        fieldKind: group.key.startsWith('radio:')
+          ? 'radio'
+          : group.key.startsWith('checkbox:')
+            ? 'checkbox'
+            : 'button-group',
         selectorHint: group.groupLabel.slice(0, 60) || group.key,
         options: group.options.map((o) => o.text).filter((t) => t.length > 0),
         reason: category === 'unknown' ? 'no-classification' : 'no-value',
@@ -2149,6 +2249,33 @@ export async function fillUnmatched(
 
       if (fieldKey.startsWith('radio:')) {
         const groups = findNativeRadioGroups();
+        const group = groups.find((g) => g.key === fieldKey);
+        if (!group) continue;
+        const chosenIdx = findOptionMatch(group.options, value);
+        if (chosenIdx < 0) continue;
+        const target = group.options[chosenIdx]!.el;
+        try {
+          dispatchMouseSequence(target);
+        } catch {
+          try {
+            target.click();
+          } catch {
+            /* ignore */
+          }
+        }
+        if (target.tagName === 'INPUT') {
+          target.dispatchEvent(new Event('input', { bubbles: true }));
+          target.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        filled += 1;
+        continue;
+      }
+
+      if (fieldKey.startsWith('checkbox:')) {
+        // Mirrors the radio path. For "select all that apply" the popup
+        // sends one CS_FILL_UNMATCHED per chosen option, so click here is
+        // a single toggle — no multi-pick logic needed at this layer.
+        const groups = findNativeCheckboxGroups();
         const group = groups.find((g) => g.key === fieldKey);
         if (!group) continue;
         const chosenIdx = findOptionMatch(group.options, value);

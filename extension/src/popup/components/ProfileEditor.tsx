@@ -851,6 +851,12 @@ export const ProfileEditor: FC = () => {
                 options={yesNo}
                 onChange={(v) => patchBidPreferences({ over18: v as YesNoPNTS })}
               />
+              <Field
+                label="Age range (for forms that ask)"
+                placeholder="e.g. 30-35, 26-29, 18-24 — match the form's wording"
+                value={prefs.ageRange}
+                onChange={(v) => patchBidPreferences({ ageRange: v })}
+              />
             </>
           );
         })()}

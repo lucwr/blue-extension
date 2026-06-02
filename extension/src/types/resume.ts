@@ -129,6 +129,8 @@ export interface BidPreferences {
   highestDegree: string;
   /** "Are you 18 years of age or older?" — defaults to 'yes' since virtually all candidates are. */
   over18: YesNoPNTS;
+  /** "What is your age range?" — free-text like "30-35", matched against the form's radio options. */
+  ageRange: string;
 }
 
 /**
@@ -170,6 +172,7 @@ export const EMPTY_BID_PREFERENCES: BidPreferences = {
   salaryExpectation: '',
   highestDegree: '',
   over18: 'yes',
+  ageRange: '',
 };
 
 export const RESUME_SCHEMA_VERSION = '1.0.0';

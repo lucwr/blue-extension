@@ -132,7 +132,14 @@ export interface AutofillUnmatchedField {
   /** Human-friendly label for the field (group label or input label). */
   label: string;
   /** Kind of field — drives the picker UI in the popup. */
-  fieldKind: 'select' | 'react-select' | 'radio' | 'button-group' | 'input' | 'textarea';
+  fieldKind:
+    | 'select'
+    | 'react-select'
+    | 'radio'
+    | 'checkbox'
+    | 'button-group'
+    | 'input'
+    | 'textarea';
   /** Short hint about the underlying control (label, name attr). */
   selectorHint?: string;
   /**

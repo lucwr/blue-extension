@@ -50,6 +50,7 @@ const KIND_LABELS: Record<AutofillUnmatchedField['fieldKind'], string> = {
   select: 'Dropdown',
   'react-select': 'Dropdown',
   radio: 'Radio',
+  checkbox: 'Checkboxes',
   'button-group': 'Buttons',
   input: 'Input',
   textarea: 'Long answer',

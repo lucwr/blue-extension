@@ -83,6 +83,7 @@ const SAMPLE_DATA = {
     salaryExpectation: '$130,000 - $160,000',
     highestDegree: "Bachelor's Degree",
     over18: 'yes',
+    ageRange: '30-35',
   },
 };
 
@@ -575,13 +576,18 @@ try {
     // Highest degree dropdown — bidPreferences.highestDegree="Bachelor's Degree"
     // should pick the matching option via exact match.
     { id: 'rs_degree', label: 'Degree', options: ["Associate's Degree", "Bachelor's Degree", 'Doctor of Medicine (M.D.)', 'Doctor of Philosophy (Ph.D.)', "Engineer's Degree", 'High School', 'Juris Doctor (J.D.)', 'Master of Business Administration (M.B.A.)'] },
-    // Hispanic / Latino EEO — demographics.hispanicLatino="no" → "No".
-    // "Decline To Self Identify" exercises the new canonicalOf PNTS variant.
-    { id: 'rs_hispanic', label: 'Are you Hispanic/Latino?', options: ['Yes', 'No', 'Decline To Self Identify'] },
+    // Hispanic / Latino EEO using the BUG-PRONE option phrasing:
+    // demographics.hispanicLatino="no" must canonicalize via "Not Hispanic or
+    // Latino" → "no" (the new explicit canonical), NOT accidentally pick
+    // "Hispanic or Latino" via substring "latino" → "no" (the old bug).
+    // "Decline to answer" exercises the PNTS canonical variant.
+    { id: 'rs_hispanic', label: 'Are you Hispanic or Latino?', options: ['Hispanic or Latino', 'Not Hispanic or Latino', 'Decline to answer'] },
     // "Are you 18 years of age or older?" — bidPreferences.over18="yes" → "Yes".
     // The matcher must beat the generic EEO/PNTS branch (the word "age" is
     // in isEEO regex).
     { id: 'rs_over18', label: 'Are you 18 years of age or older?', options: ['Yes', 'No'] },
+    // Age-range bucket — bidPreferences.ageRange="30-35" should match exactly.
+    { id: 'rs_age_range', label: 'What is your age range?', options: ['17 or younger', '18-20', '21-25', '26-29', '30-35', '36-39', '40-49', '50-59', '60 or older'] },
   ];
 
   // Empty iframe — we'll build the form + mock script via frame.evaluate
@@ -737,6 +743,7 @@ try {
       degree: v('rs_degree'),
       hispanic: v('rs_hispanic'),
       over18: v('rs_over18'),
+      ageRange: v('rs_age_range'),
     };
   });
   console.log('react-select state:', JSON.stringify(rsState, null, 2));
@@ -766,17 +773,25 @@ try {
     ['rs: workauth → Yes', rsState.workauth === 'Yes'],
     ['rs: prior employment → No', rsState.prior === 'No'],
     ['rs: consent → Yes', rsState.consent === 'Yes'],
+    // Critical regression — demographics.hispanicLatino="no" must pick
+    // "Not Hispanic or Latino", NOT "Hispanic or Latino" via the "latino"
+    // substring containing "no".
+    [
+      'rs: Hispanic/Latino → "Not Hispanic or Latino" (no substring bug)',
+      rsState.hispanic === 'Not Hispanic or Latino',
+    ],
     // ezCater-style verbose sponsorship label — \bsponsorship\b matcher hit
     // → demographics.requiresSponsorshipUS="no" → "No".
     ['rs: sponsorship → No (verbose ezCater label)', rsState.sponsorship === 'No'],
     // New: Degree dropdown — bidPreferences.highestDegree="Bachelor's Degree"
     // matches the option of the same name exactly.
     ["rs: degree → Bachelor's Degree", rsState.degree === "Bachelor's Degree"],
-    // New: Hispanic/Latino — demographics.hispanicLatino="no" → "No".
-    ['rs: hispanic-latino → No', rsState.hispanic === 'No'],
+    // (Hispanic/Latino covered above by the no-substring regression test.)
     // New: Are you 18 years of age or older? — over18="yes" → "Yes". The
     // age matcher must beat the generic EEO PNTS branch.
     ['rs: over-18 → Yes', rsState.over18 === 'Yes'],
+    // Age-range bucket from bidPreferences.ageRange="30-35".
+    ['rs: age range → 30-35', rsState.ageRange === '30-35'],
     // No widgets queued for LLM
     [
       'rs: NO selects in LLM queue',
@@ -827,19 +842,6 @@ label { display: block; margin: 4px 0; }
     <label><input type="radio" name="gender" value="decline"> Decline to self-identify</label>
   </fieldset>
 
-  <!-- Native radio group: Race (with parenthetical suffixes) -->
-  <fieldset class="group">
-    <legend>Race / Ethnicity</legend>
-    <label><input type="radio" name="race" value="hispanic"> Hispanic or Latino</label>
-    <label><input type="radio" name="race" value="white"> White (Not Hispanic or Latino)</label>
-    <label><input type="radio" name="race" value="black"> Black or African American (Not Hispanic or Latino)</label>
-    <label><input type="radio" name="race" value="nhpi"> Native Hawaiian or Other Pacific Islander (Not Hispanic or Latino)</label>
-    <label><input type="radio" name="race" value="asian"> Asian (Not Hispanic or Latino)</label>
-    <label><input type="radio" name="race" value="aian"> American Indian or Alaska Native (Not Hispanic or Latino)</label>
-    <label><input type="radio" name="race" value="multi"> Two or More Races (Not Hispanic or Latino)</label>
-    <label><input type="radio" name="race" value="decline"> Decline to self-identify</label>
-  </fieldset>
-
   <!-- Native radio group: Veteran Status (full ezCater phrasing) -->
   <fieldset class="group">
     <legend>Veteran Status</legend>
@@ -887,6 +889,34 @@ label { display: block; margin: 4px 0; }
       <input type="checkbox" name="sponsorship_ashby_internal" aria-hidden="true" style="display:none">
     </div>
   </div>
+
+  <!-- "Select all that apply" CHECKBOX group for race. demographics.race="White"
+       should produce a click on the matching "White / Caucasian" checkbox. -->
+  <fieldset class="group" id="race_checkbox_group">
+    <legend>Race / Ethnicity (select all that apply)</legend>
+    <label><input type="checkbox" name="race_multi" value="white"> White / Caucasian</label>
+    <label><input type="checkbox" name="race_multi" value="hispanic"> Hispanic, Latino, or Spanish origin</label>
+    <label><input type="checkbox" name="race_multi" value="black"> Black or African American</label>
+    <label><input type="checkbox" name="race_multi" value="asian"> Asian</label>
+    <label><input type="checkbox" name="race_multi" value="nhpi"> Native Hawaiian or other Pacific Islander</label>
+    <label><input type="checkbox" name="race_multi" value="indigenous"> Indigenous Peoples, First Nations, Native American, or Alaska Native</label>
+    <label><input type="checkbox" name="race_multi" value="mena"> Middle Eastern or North African</label>
+    <label><input type="checkbox" name="race_multi" value="other"> Some other race, ethnicity, or origin</label>
+  </fieldset>
+
+  <!-- Age range radio group — bidPreferences.ageRange="30-35" picks 30-35. -->
+  <fieldset class="group" id="age_range_group">
+    <legend>What is your age range?</legend>
+    <label><input type="radio" name="age_range_radio" value="lt18"> 17 or younger</label>
+    <label><input type="radio" name="age_range_radio" value="18-20"> 18-20</label>
+    <label><input type="radio" name="age_range_radio" value="21-25"> 21-25</label>
+    <label><input type="radio" name="age_range_radio" value="26-29"> 26-29</label>
+    <label><input type="radio" name="age_range_radio" value="30-35"> 30-35</label>
+    <label><input type="radio" name="age_range_radio" value="36-39"> 36-39</label>
+    <label><input type="radio" name="age_range_radio" value="40-49"> 40-49</label>
+    <label><input type="radio" name="age_range_radio" value="50-59"> 50-59</label>
+    <label><input type="radio" name="age_range_radio" value="60p"> 60 or older</label>
+  </fieldset>
 </form>
 <!-- Mock click handler injected via frame.evaluate after load to dodge
      srcdoc-vs-JS quote escaping issues. -->
@@ -962,6 +992,17 @@ label { display: block; margin: 4px 0; }
       // Ashby-style pattern
       ashby_workauth: fieldEntrySelected('auth_ashby'),
       ashby_sponsorship: fieldEntrySelected('sponsorship_ashby'),
+      // Race checkbox group: which boxes are checked?
+      raceCheckboxes: Array.from(
+        document.querySelectorAll('input[name="race_multi"]:checked'),
+      ).map((c) => c.value),
+      // Age range radio group: which radio is checked?
+      ageRangeRadio: (() => {
+        const checked = document.querySelector(
+          'input[name="age_range_radio"]:checked',
+        );
+        return checked ? checked.value : '';
+      })(),
     };
   });
   console.log('radio/button state:', JSON.stringify(radioState, null, 2));
@@ -973,10 +1014,7 @@ label { display: block; margin: 4px 0; }
       'scenario 4: gender radio → male (demographics.gender="Male")',
       radioState.gender === 'male',
     ],
-    [
-      'scenario 4: race radio → white (contains-match on "White (Not Hispanic or Latino)")',
-      radioState.race === 'white',
-    ],
+    // (race radio test replaced by the checkbox group test below)
     [
       'scenario 4: veteran radio → not_protected ("I am not a protected veteran")',
       radioState.veteran === 'not_protected',
@@ -998,6 +1036,17 @@ label { display: block; margin: 4px 0; }
     [
       'scenario 4: Ashby sponsorship (button, no type attr) → No',
       radioState.ashby_sponsorship === 'No',
+    ],
+    // Checkbox group "select all that apply" — demographics.race="White"
+    // should toggle ONLY the "White / Caucasian" checkbox.
+    [
+      'scenario 4: race checkbox group → only "white" checked',
+      radioState.raceCheckboxes.length === 1 && radioState.raceCheckboxes[0] === 'white',
+    ],
+    // Age range radio group — bidPreferences.ageRange="30-35" picks 30-35.
+    [
+      'scenario 4: age range radio → 30-35',
+      radioState.ageRangeRadio === '30-35',
     ],
     // No selects went to LLM
     [
