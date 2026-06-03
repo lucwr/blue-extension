@@ -219,6 +219,25 @@ const TEST_HTML = `<!doctype html>
             <option value="2">No, I am not a protected veteran</option>
             <option value="3">I do not wish to answer</option>
           </select></div>
+        <!-- DUPLICATE FIELDS — second First Name, second Email, second Phone,
+             second native Gender SELECT. Forms sometimes repeat the same
+             item (e.g. a confirmation block at the bottom, or a primary
+             vs. preferred-contact section). The engine must fill EVERY
+             matching field, not just the first occurrence. -->
+        <div><label for="first_name_2">First Name (confirm)</label>
+          <input id="first_name_2" name="job_application[first_name_confirm]" type="text"></div>
+        <div><label for="email_2">Email (confirm)</label>
+          <input id="email_2" name="job_application[email_confirm]" type="email"></div>
+        <div><label for="phone_2">Mobile phone</label>
+          <input id="phone_2" name="job_application[phone_alt]" type="tel"></div>
+        <div><label for="gender_2">Gender (self-identify)</label>
+          <select id="gender_2" name="job_application[gender_self_id]">
+            <option value="">Select…</option>
+            <option value="1">Female</option>
+            <option value="2">Male</option>
+            <option value="3">Non-binary</option>
+            <option value="4">Prefer not to say</option>
+          </select></div>
       </form>
     </body></html>
   '></iframe>
@@ -318,6 +337,10 @@ try {
       orientation: v('#orientation'),
       disability_verbose: v('#disability_verbose'),
       veteran_verbose: v('#veteran_verbose'),
+      first_name_2: v('#first_name_2'),
+      email_2: v('#email_2'),
+      phone_2: v('#phone_2'),
+      gender_2: v('#gender_2'),
     };
   });
 
@@ -426,6 +449,15 @@ try {
     ['filled report has prior-employment entry', result.filled.some((f) => f.category === 'prior-employment')],
     ['filled report has transgender entry', result.filled.some((f) => f.category === 'transgender')],
     ['filled report has eeo-default (age/orientation)', result.filled.some((f) => f.category === 'eeo-default')],
+
+    // --- Duplicate-field fills: every matching field gets the same value ---
+    ['DUPLICATE: second First Name input also fills', formState.first_name_2?.value === 'Jane'],
+    [
+      'DUPLICATE: second Email input also fills',
+      formState.email_2?.value === 'jane.doe@example.com',
+    ],
+    ['DUPLICATE: second Phone input also fills', formState.phone_2?.value?.length > 0],
+    ['DUPLICATE: second Gender SELECT also fills', formState.gender_2?.selectedText === 'Male'],
   ];
 
   let passed = 0;
@@ -588,6 +620,9 @@ try {
     { id: 'rs_over18', label: 'Are you 18 years of age or older?', options: ['Yes', 'No'] },
     // Age-range bucket — bidPreferences.ageRange="30-35" should match exactly.
     { id: 'rs_age_range', label: 'What is your age range?', options: ['17 or younger', '18-20', '21-25', '26-29', '30-35', '36-39', '40-49', '50-59', '60 or older'] },
+    // DUPLICATE — a second gender react-select. The engine must fill BOTH
+    // gender widgets (no per-category dedupe).
+    { id: 'rs_gender_2', label: 'Gender (self-identification)', options: ['Woman', 'Man', 'Non-binary', 'Prefer to self-describe', 'Prefer not to say'] },
   ];
 
   // Empty iframe — we'll build the form + mock script via frame.evaluate
@@ -744,6 +779,7 @@ try {
       hispanic: v('rs_hispanic'),
       over18: v('rs_over18'),
       ageRange: v('rs_age_range'),
+      gender_2: v('rs_gender_2'),
     };
   });
   console.log('react-select state:', JSON.stringify(rsState, null, 2));
@@ -792,6 +828,9 @@ try {
     ['rs: over-18 → Yes', rsState.over18 === 'Yes'],
     // Age-range bucket from bidPreferences.ageRange="30-35".
     ['rs: age range → 30-35', rsState.ageRange === '30-35'],
+    // DUPLICATE — both gender react-selects must fill (rs_gender → "Man"
+    // via Male/Man synonym, rs_gender_2 → "Man" again from the same value).
+    ['rs: second Gender widget → Man (duplicate fills too)', rsState.gender_2 === 'Man'],
     // No widgets queued for LLM
     [
       'rs: NO selects in LLM queue',
@@ -840,6 +879,15 @@ label { display: block; margin: 4px 0; }
     <label><input type="radio" name="gender" value="male"> Male</label>
     <label><input type="radio" name="gender" value="female"> Female</label>
     <label><input type="radio" name="gender" value="decline"> Decline to self-identify</label>
+  </fieldset>
+
+  <!-- DUPLICATE gender radio group with a different name attribute. Both must fill. -->
+  <fieldset class="group">
+    <legend>Gender identity</legend>
+    <label><input type="radio" name="gender_id" value="male"> Male</label>
+    <label><input type="radio" name="gender_id" value="female"> Female</label>
+    <label><input type="radio" name="gender_id" value="non-binary"> Non-binary</label>
+    <label><input type="radio" name="gender_id" value="decline"> Decline to self-identify</label>
   </fieldset>
 
   <!-- Native radio group: Veteran Status (full ezCater phrasing) -->
@@ -985,6 +1033,7 @@ label { display: block; margin: 4px 0; }
       workauth: buttonSelected('authorized to work lawfully'),
       sponsorship: buttonSelected('immigration sponsorship'),
       gender: checked('gender'),
+      gender_id: checked('gender_id'),
       race: checked('race'),
       veteran: checked('veteran_status'),
       consent: buttonSelected('by submitting my application'),
@@ -1013,6 +1062,11 @@ label { display: block; margin: 4px 0; }
     [
       'scenario 4: gender radio → male (demographics.gender="Male")',
       radioState.gender === 'male',
+    ],
+    // DUPLICATE — second gender radio group ("Gender identity") must also fill.
+    [
+      'scenario 4: DUPLICATE second gender radio group → male',
+      radioState.gender_id === 'male',
     ],
     // (race radio test replaced by the checkbox group test below)
     [

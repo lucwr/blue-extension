@@ -180,9 +180,8 @@ const MATCHERS: ReadonlyArray<{ category: Category; re: RegExp; weight: number }
 
   // Highest degree attained — Bachelor's / Master's / Ph.D. / M.B.A. picker.
   // The `\bdegree\b` matcher fires whenever the haystack mentions "degree"
-  // as a standalone word (group label or input id). Safe even with the
-  // permissive match because writtenOnce dedupes if multiple selects on
-  // the same form happen to share the keyword.
+  // as a standalone word (group label or input id). Multiple degree selects
+  // on the same form (rare) all get the same value from the profile.
   {
     category: 'highest-degree',
     re: /\b(highest[-_ ]?(degree|education|level[-_ ]?of[-_ ]?education)|degree[-_ ]?(attained|earned|completed|level)|education[-_ ]?level|what[-_ ]?(is[-_ ]?your[-_ ]?)?degree|\bdegree\b)\b/,
@@ -1180,7 +1179,10 @@ async function autofillReactSelects(data: BidPayload): Promise<{
   const widgets = findReactSelectWidgets();
   const filled: AutofillFilled[] = [];
   const unmatched: AutofillUnmatchedField[] = [];
-  const writtenOnce = new Set<Category>();
+  // No per-category dedupe: forms commonly ask for the same item more than
+  // once (e.g. "Gender" + a second EEO-section "Gender", or duplicate
+  // contact blocks on multi-step pages). Every matching widget gets the
+  // same value from the profile.
 
   for (let widgetIndex = 0; widgetIndex < widgets.length; widgetIndex += 1) {
     const widget = widgets[widgetIndex]!;
@@ -1202,11 +1204,9 @@ async function autofillReactSelects(data: BidPayload): Promise<{
         category = m.category;
       }
     }
-    if (category !== 'unknown' && writtenOnce.has(category)) continue;
 
     const written = await fillReactSelectWidget(widget, category, data);
     if (written) {
-      if (category !== 'unknown') writtenOnce.add(category);
       filled.push({
         category: category === 'unknown' ? 'eeo-default' : category,
         preview: written.length > 80 ? `${written.slice(0, 77)}…` : written,
@@ -1691,7 +1691,9 @@ function autofillChoiceGroups(data: BidPayload): {
   ];
   const filled: AutofillFilled[] = [];
   const unmatched: AutofillUnmatchedField[] = [];
-  const writtenOnce = new Set<Category>();
+  // No per-category dedupe — see note in autofillReactSelects: forms can
+  // legitimately ask the same EEO question more than once, and the engine
+  // should fill every matching group.
 
   for (const group of groups) {
     if (group.anySelected) continue;
@@ -1725,8 +1727,6 @@ function autofillChoiceGroups(data: BidPayload): {
         }
       }
     }
-    if (category !== 'unknown' && writtenOnce.has(category)) continue;
-
     const optionTexts = group.options.map((o) => o.text);
     let chosenIdx = -1;
     let chosenText = '';
@@ -1766,7 +1766,6 @@ function autofillChoiceGroups(data: BidPayload): {
         target.dispatchEvent(new Event('input', { bubbles: true }));
         target.dispatchEvent(new Event('change', { bubbles: true }));
       }
-      if (category !== 'unknown') writtenOnce.add(category);
       filled.push({
         category: category === 'unknown' ? 'eeo-default' : category,
         preview: chosenText.length > 80 ? `${chosenText.slice(0, 77)}…` : chosenText,
@@ -2013,8 +2012,11 @@ function autofillNativeFields(data: BidPayload): {
   const pending: AutofillPendingQuestion[] = [];
   const unmatched: AutofillUnmatchedField[] = [];
 
-  const writtenOnce = new Set<Category>();
-  const allowDuplicates = new Set<Category>(['cover-letter', 'summary']);
+  // No per-category dedupe: forms commonly repeat the same item in multiple
+  // sections (e.g. a "Gender" field at the top and another in the EEO
+  // self-identification block at the bottom). Every matching field gets
+  // filled. Skipping logic for individual user-entered values still runs
+  // per-field below — we won't overwrite values the user typed.
 
   /** Push an unmatched descriptor for an input/textarea at index `i`. */
   const pushUnmatched = (
@@ -2077,12 +2079,8 @@ function autofillNativeFields(data: BidPayload): {
 
     // ----- SELECT path: always deterministic, never LLM -----
     if (el.tagName === 'SELECT') {
-      if (cls.category !== 'unknown' && writtenOnce.has(cls.category) && !allowDuplicates.has(cls.category)) {
-        continue;
-      }
       const written = fillSelectField(el as HTMLSelectElement, cls, data);
       if (written) {
-        if (cls.category !== 'unknown') writtenOnce.add(cls.category);
         filled.push({
           category: cls.category === 'unknown' ? 'eeo-default' : cls.category,
           preview: written.length > 80 ? `${written.slice(0, 77)}…` : written,
@@ -2104,7 +2102,6 @@ function autofillNativeFields(data: BidPayload): {
       queue(queueAsLLMQuestion(el, cls, i), el, cls, i);
       continue;
     }
-    if (writtenOnce.has(cls.category) && !allowDuplicates.has(cls.category)) continue;
 
     const value = valueForCategory(cls.category, data);
     if (!value) {
@@ -2120,7 +2117,6 @@ function autofillNativeFields(data: BidPayload): {
       continue;
     }
 
-    writtenOnce.add(cls.category);
     filled.push({
       category: cls.category,
       preview: value.length > 80 ? `${value.slice(0, 77)}…` : value,

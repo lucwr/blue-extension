@@ -25,6 +25,10 @@
         contact: {
           fullName: 'Marko Azirovic',
           email: 'princestar81496@gmail.com',
+          // Phone + LinkedIn included so the renderer exercises the
+          // wrap-to-two-lines path on a realistically long contact line.
+          phone: '+381628440624',
+          linkedin: 'https://www.linkedin.com/in/marko-azirovic-2bb43940b/',
           location: 'Belgrade, Serbia',
         },
         targetTitle: 'Senior AI & Full-Stack Engineer',
@@ -109,11 +113,33 @@
         pdf.text(r.targetTitle, PAGE_W / 2, c.y, { align: 'center' });
         c.y += 0.22;
 
-        const bits = [r.contact.email, r.contact.location].filter(Boolean);
+        // Contact — email, phone, LinkedIn only. Wrap to two centered
+        // lines when the line is wider than the content area.
+        const bits = [r.contact.email, r.contact.phone, r.contact.linkedin].filter(Boolean);
         pdf.setFont(FONT, 'normal');
         pdf.setFontSize(10);
-        pdf.text(bits.join('   |   '), PAGE_W / 2, c.y, { align: 'center' });
-        c.y += 0.04;
+        const SEP = '   |   ';
+        const fullLine = bits.join(SEP);
+        if (pdf.getTextWidth(fullLine) <= CONTENT_W) {
+          pdf.text(fullLine, PAGE_W / 2, c.y, { align: 'center' });
+          c.y += 0.04;
+        } else {
+          let bestSplit = Math.ceil(bits.length / 2);
+          let bestMaxWidth = Infinity;
+          for (let i = 1; i < bits.length; i += 1) {
+            const top = bits.slice(0, i).join(SEP);
+            const bot = bits.slice(i).join(SEP);
+            const maxW = Math.max(pdf.getTextWidth(top), pdf.getTextWidth(bot));
+            if (maxW < bestMaxWidth) {
+              bestMaxWidth = maxW;
+              bestSplit = i;
+            }
+          }
+          pdf.text(bits.slice(0, bestSplit).join(SEP), PAGE_W / 2, c.y, { align: 'center' });
+          c.y += LH_BODY;
+          pdf.text(bits.slice(bestSplit).join(SEP), PAGE_W / 2, c.y, { align: 'center' });
+          c.y += 0.04;
+        }
 
         // Summary
         sectionHeading(pdf, c, 'Summary');

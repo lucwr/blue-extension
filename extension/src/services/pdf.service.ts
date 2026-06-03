@@ -147,20 +147,49 @@ function renderHeader(pdf: jsPDF, t: ResumeTemplate, c: Cursor, resume: ResumeJs
   pdf.text(targetTitle, t.page.width / 2, c.y, { align: 'center' });
   c.y += t.spacing.afterTitle;
 
-  // Contact — centered, joined with the template's separator.
-  const bits = [
-    contact.email,
-    contact.location,
-    contact.phone,
-    contact.linkedin,
-    contact.github,
-    contact.website,
-  ].filter((s): s is string => Boolean(s));
+  // Contact — centered. Per spec, only email, phone, and LinkedIn appear.
+  // Location, GitHub, and personal website are intentionally omitted.
+  const bits = [contact.email, contact.phone, contact.linkedin].filter(
+    (s): s is string => Boolean(s),
+  );
 
   if (bits.length > 0) {
     applyStyle(pdf, t.styles.contact);
-    pdf.text(bits.join(t.separators.contactJoin), t.page.width / 2, c.y, { align: 'center' });
-    c.y += t.spacing.afterContact;
+    const sep = t.separators.contactJoin;
+    const fullLine = bits.join(sep);
+    const availableWidth = t.page.width - 2 * t.page.marginX;
+
+    if (pdf.getTextWidth(fullLine) <= availableWidth) {
+      // Single line — render as before.
+      pdf.text(fullLine, t.page.width / 2, c.y, { align: 'center' });
+      c.y += t.spacing.afterContact;
+    } else {
+      // Overflow — split the bits into two centered lines, balanced by
+      // measured width so the wrap point falls at a natural separator.
+      // Try every split point i in [1, bits.length-1] and pick the one
+      // where the longer of the two halves is shortest (most balanced),
+      // tie-breaking by preferring the smaller first half (keeps email
+      // on its own line when it fits).
+      let bestSplit = Math.ceil(bits.length / 2);
+      let bestMaxWidth = Infinity;
+      for (let i = 1; i < bits.length; i += 1) {
+        const top = bits.slice(0, i).join(sep);
+        const bot = bits.slice(i).join(sep);
+        const topW = pdf.getTextWidth(top);
+        const botW = pdf.getTextWidth(bot);
+        const maxW = Math.max(topW, botW);
+        if (maxW < bestMaxWidth) {
+          bestMaxWidth = maxW;
+          bestSplit = i;
+        }
+      }
+      const topLine = bits.slice(0, bestSplit).join(sep);
+      const botLine = bits.slice(bestSplit).join(sep);
+      pdf.text(topLine, t.page.width / 2, c.y, { align: 'center' });
+      c.y += t.spacing.bodyLineHeight;
+      pdf.text(botLine, t.page.width / 2, c.y, { align: 'center' });
+      c.y += t.spacing.afterContact;
+    }
   }
 }
 
