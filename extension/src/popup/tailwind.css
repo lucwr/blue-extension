@@ -23,6 +23,12 @@ body,
   100% { opacity: 0; transform: translateX(30%); }
 }
 
+/* Toast slide-in: drops from the top with a tiny fade. */
+@keyframes rmToastIn {
+  0% { opacity: 0; transform: translate(-50%, -8px); }
+  100% { opacity: 1; transform: translate(-50%, 0); }
+}
+
 /* Slim scrollbar so the popup's overflow doesn't get a chunky default. */
 .rm-scroll::-webkit-scrollbar {
   width: 6px;

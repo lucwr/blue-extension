@@ -1,11 +1,18 @@
+/**
+ * Resume card. Wraps the EXISTING handlers from `useGenerateResume()` and
+ * the existing `downloadResumePdf` service. Both are passed in as props
+ * from App.tsx — this component does not import or call them directly.
+ */
 import type { FC } from 'react';
 import type { ResumeJson } from '@/types/resume';
-import { Spinner, StatusChip } from './Spinner';
+import { ActionCard, PrimaryButton, SecondaryButton, type StatusTone } from './ui';
 
 interface Props {
   resume: ResumeJson | null;
   canGenerate: boolean;
+  /** Same handler as before — bound to `useGenerateResume()`. */
   onGenerate: () => void;
+  /** Same handler as before — calls `downloadResumePdf` via App.tsx. */
   onDownloadPdf: () => void;
   disabled: boolean;
   busy: boolean;
@@ -42,46 +49,45 @@ export const ResumePanel: FC<Props> = ({
   disabled,
   busy,
 }) => {
-  const chipTone = busy ? 'busy' : resume ? 'done' : 'pending';
-  const chipText = busy ? 'Generating' : resume ? 'Tailored' : canGenerate ? 'Ready' : 'Awaiting JD';
+  const status: { tone: StatusTone; label: string } = busy
+    ? { tone: 'busy', label: 'Generating' }
+    : resume
+      ? { tone: 'done', label: 'Completed' }
+      : canGenerate
+        ? { tone: 'ready', label: 'Ready' }
+        : { tone: 'idle', label: 'Awaiting JD' };
+
+  const preview = resume
+    ? `${resume.targetTitle} · ${resume.experience.length} roles · ${Object.values(resume.skills).reduce((acc, arr) => acc + arr.length, 0)} skills`
+    : canGenerate
+      ? 'Tailored to the captured job description.'
+      : 'Extract a job description to enable.';
+
   return (
-    <section className="border-t border-slate-200 p-4">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-slate-800 to-slate-900 text-white shadow-sm">
-            <FileIcon className="h-3.5 w-3.5" />
-          </span>
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              <h2 className="text-sm font-semibold text-slate-800">Resume</h2>
-              <StatusChip tone={chipTone} text={chipText} />
-            </div>
-            <p className="truncate text-[10px] uppercase tracking-wide text-slate-400">
-              {resume ? `${resume.targetTitle}` : 'Tailored to JD'}
-            </p>
-          </div>
-        </div>
-        <div className="flex shrink-0 gap-1.5">
-          <button
-            type="button"
+    <ActionCard
+      icon={<FileIcon className="h-4 w-4" />}
+      title="Resume"
+      status={status}
+      preview={preview}
+      actions={
+        <>
+          <PrimaryButton
             onClick={onGenerate}
             disabled={!canGenerate || disabled}
-            className="inline-flex items-center gap-1.5 rounded-md bg-gradient-to-r from-brand-600 to-brand-700 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:from-brand-700 hover:to-brand-800 hover:shadow active:scale-[0.98] disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none"
+            loading={busy}
+            leadingIcon={<SparkleIcon className="h-3 w-3" />}
           >
-            {busy ? <Spinner className="h-3 w-3" /> : <SparkleIcon className="h-3 w-3" />}
-            {resume ? 'Regenerate' : 'Generate'}
-          </button>
-          <button
-            type="button"
+            {resume ? 'Regenerate' : 'Generate Resume'}
+          </PrimaryButton>
+          <SecondaryButton
             onClick={onDownloadPdf}
             disabled={!resume || disabled}
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+            leadingIcon={<DownloadIcon className="h-3 w-3" />}
           >
-            <DownloadIcon className="h-3 w-3" />
             PDF
-          </button>
-        </div>
-      </div>
-    </section>
+          </SecondaryButton>
+        </>
+      }
+    />
   );
 };
