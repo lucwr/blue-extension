@@ -46,6 +46,20 @@ export interface BidPayload {
   summary: string;
   /** Approximate years from earliest startDate to most recent endDate. */
   yearsOfExperience: number;
+  /**
+   * The candidate's most recent (or current) employer. Used by the autofill
+   * engine for fields labelled "Current or Most Recent Company" / "Current
+   * Employer" — distinct from the JD's company. Omitted when the master
+   * profile has no work history yet.
+   */
+  currentCompany?: string;
+  /**
+   * The candidate's most recent (or current) job title. Used for fields
+   * labelled "Current or Most Recent Title" / "Current Position" — distinct
+   * from `targetTitle`, which is the JD-tailored title the candidate is
+   * applying for. Omitted when the master profile has no work history.
+   */
+  currentTitle?: string;
   /** Optional — omitted when no cover-letter field was detected on the page. */
   proposal?: {
     subject?: string;
@@ -58,6 +72,29 @@ export interface BidPayload {
   demographics?: ResumeDemographics;
   /** Optional — defaults for common Greenhouse custom-question selects. */
   bidPreferences?: BidPreferences;
+  /**
+   * Resume PDF rendered in the popup, base64-encoded, ready for the autofill
+   * engine to upload to any "Resume" / "CV" file-upload field discovered on
+   * the bid page. Always present once the popup has generated a resume.
+   * Decoded in the content script via atob() → Uint8Array → File. Skipping
+   * the round-trip through chrome.runtime serialization means the engine
+   * doesn't need filesystem access.
+   */
+  resumePdf?: {
+    filename: string;
+    base64: string;
+  };
+  /**
+   * Cover-letter PDF rendered from the generated proposal. Uploaded ONLY
+   * to file-upload fields explicitly marked as required (red asterisk in
+   * the label, `required` attribute on the input, or `aria-required="true"`)
+   * — optional cover-letter uploads are skipped to match the user's
+   * stated preference. Absent when no proposal was generated.
+   */
+  coverLetterPdf?: {
+    filename: string;
+    base64: string;
+  };
 }
 
 /** One detected field that was filled (or attempted) by the autofill engine. */

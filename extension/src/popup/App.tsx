@@ -10,6 +10,8 @@ import { useExtraction } from './hooks/useExtraction';
 import { useGenerateProposal, useGenerateResume } from './hooks/useGeneration';
 import { usePopupStore } from './store';
 import { downloadResumePdf } from '@/services/pdf.service';
+import { StorageKeys } from '@/storage/keys';
+import type { PopupSession } from '@/storage';
 import type { ProposalTone } from '@/types/proposal';
 
 type View = 'job' | 'profile';
@@ -85,6 +87,28 @@ export const App: FC = () => {
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
+
+  // Live-sync from the background while the popup is open: when the
+  // background service worker finishes generating a resume/proposal (or
+  // updates step/error) it writes to PopupSession in chrome.storage.local.
+  // This listener mirrors that into the store so the UI updates the
+  // instant the result lands — the user no longer has to close & reopen
+  // the popup to see work that happened while it was closed.
+  useEffect(() => {
+    const onChanged = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      area: chrome.storage.AreaName,
+    ): void => {
+      if (area !== 'local') return;
+      const change = changes[StorageKeys.PopupSession];
+      if (!change) return;
+      const next = change.newValue as PopupSession | undefined;
+      if (!next) return;
+      usePopupStore.getState().syncFromSession(next);
+    };
+    chrome.storage.onChanged.addListener(onChanged);
+    return () => chrome.storage.onChanged.removeListener(onChanged);
+  }, []);
 
   const onRefresh = useCallback(() => {
     // Don't allow mid-run wipes — would orphan inflight requests.
@@ -178,24 +202,34 @@ export const App: FC = () => {
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto">
+      <main className="rm-scroll flex-1 overflow-y-auto">
         {!hydrated ? (
-          <div className="p-4 text-xs text-slate-500">Loading…</div>
+          <div className="flex items-center gap-2 p-4 text-xs text-slate-500">
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-brand-400" />
+            Loading…
+          </div>
         ) : view === 'job' ? (
           <>
-            <JobPanel jd={jd} onExtract={() => void extract()} disabled={busy} />
+            <JobPanel
+              jd={jd}
+              onExtract={() => void extract()}
+              disabled={busy}
+              busy={step === 'extracting'}
+            />
             <ResumePanel
               resume={resume}
               canGenerate={Boolean(jd)}
               onGenerate={() => void generateResume()}
               onDownloadPdf={() => void onDownloadPdf()}
               disabled={busy}
+              busy={step === 'generating-resume'}
             />
             {jd?.hasCoverLetterField !== false && (
               <ProposalPanel
                 proposal={proposal}
                 canGenerate={Boolean(jd)}
                 disabled={busy}
+                busy={step === 'generating-proposal'}
                 onGenerate={onGenerateProposal}
                 onCopy={() => void onCopyProposal()}
               />

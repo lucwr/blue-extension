@@ -50,6 +50,22 @@ const SAMPLE_DATA = {
   targetTitle: 'Senior Software Engineer',
   summary: 'Engineer with 10y building distributed systems.',
   yearsOfExperience: 10,
+  // Most recent role from the master profile — used to fill fields labelled
+  // "Current or Most Recent Company" / "Current or Most Recent Title".
+  currentCompany: 'Acme Robotics',
+  currentTitle: 'Staff Software Engineer',
+  // Tiny base64 PDFs used by the file-upload pass. Real PDFs would carry
+  // hundreds of KB of jsPDF output — for the test we just need the
+  // DataTransfer trick to land a File on the input.
+  resumePdf: {
+    filename: 'Jane_Doe_CV_SeniorSoftwareEngineer.pdf',
+    // "%PDF-1.4 ..." minimal placeholder — atob just needs valid b64.
+    base64: 'JVBERi0xLjQKJWZha2U=',
+  },
+  coverLetterPdf: {
+    filename: 'Jane_Doe_CoverLetter_SeniorSoftwareEngineer.pdf',
+    base64: 'JVBERi0xLjQKJWZha2U=',
+  },
   proposal: {
     subject: 'Application — Senior Software Engineer',
     opener: 'I read the role with interest.',
@@ -71,6 +87,7 @@ const SAMPLE_DATA = {
     disability: 'no',
     transgender: 'no',
     hispanicLatino: 'no',
+    lgbtq: 'no',
     pronouns: 'he/him',
   },
   // Defaults for the non-EEO custom questions:
@@ -205,6 +222,16 @@ const TEST_HTML = `<!doctype html>
             <option value="4">Other</option>
             <option value="5">Prefer not to say</option>
           </select></div>
+        <!-- LGBTQ select — verbatim from the users screenshot: Yes / No /
+             "I do not wish to answer" (PNTS variant). Demographics has
+             lgbtq=no so the engine should select "No". -->
+        <div><label for="lgbtq_select">Do you identify as LGBTQ? *</label>
+          <select id="lgbtq_select" name="job_application[lgbtq]">
+            <option value="">Select…</option>
+            <option value="1">Yes</option>
+            <option value="2">No</option>
+            <option value="3">I do not wish to answer</option>
+          </select></div>
         <div><label for="disability_verbose">Do you identify as having or previously having a disability?</label>
           <select id="disability_verbose" name="job_application[disability_verbose]">
             <option value="">Select…</option>
@@ -238,6 +265,81 @@ const TEST_HTML = `<!doctype html>
             <option value="3">Non-binary</option>
             <option value="4">Prefer not to say</option>
           </select></div>
+        <!-- BARE "Name" label — must fill with full name. Old caret-name-dollar
+             anchor never matched because the haystack joins multiple
+             tokens; the new bare-name pattern with lookbehind covers this. -->
+        <div><label for="bare_name">Name *</label>
+          <input id="bare_name" name="job_application[name]" type="text" placeholder="Type here..."></div>
+        <!-- DISQUALIFIER regression — "Company Name" must NOT fill with
+             the candidate full name; the lookbehind blocks "company name".
+             Label intentionally kept generic — see the "Current or Most
+             Recent Company" rows below for the current-company matcher. -->
+        <div><label for="company_name">Company Name</label>
+          <input id="company_name" name="job_application[company_name]" type="text"></div>
+        <!-- DISQUALIFIER regression — "Project Name" must NOT fill either. -->
+        <div><label for="project_name_field">Project Name</label>
+          <input id="project_name_field" name="job_application[project_name]" type="text"></div>
+        <!-- "Current or Most Recent Company" / "Current or Most Recent Title"
+             — must fill with profile.currentCompany / profile.currentTitle,
+             NOT with the JD-tailored targetTitle. -->
+        <div><label for="current_company">Current or Most Recent Company *</label>
+          <input id="current_company" name="job_application[current_company]" type="text" placeholder="Type here..."></div>
+        <div><label for="current_title">Current or Most Recent Title *</label>
+          <input id="current_title" name="job_application[current_title]" type="text" placeholder="Type here..."></div>
+        <!-- LONG-FORM textarea question: question label is ~150 chars
+             across two sentences with an asterisk, followed by a short
+             HINT sentence right before the textarea (no label-for).
+             Must be queued as a pending LLM question, NOT as unmatched. -->
+        <div class="question-block">
+          <div class="q-title"><strong>Describe a role you were in or a project you led that brought out your absolute best work?</strong></div>
+          <div class="q-title"><strong>What setup or attributes of the role/project enabled that?</strong><span style="color:red">*</span></div>
+          <div class="q-hint">Please limit your answer to no more than three paragraphs.</div>
+          <div class="textarea-wrapper">
+            <textarea id="describe_role" name="describe_role" placeholder="Type here..." rows="5"></textarea>
+          </div>
+        </div>
+        <!-- FILE UPLOADS — react-dropzone-style hidden input wrapped by a
+             styled "Upload File" button. Required resume must auto-upload;
+             optional cover letter must SKIP (per user spec). -->
+        <div class="form-field">
+          <label for="resume_file">Resume<span style="color:red">*</span></label>
+          <div class="dropzone">
+            <button type="button">Upload File</button>
+            <input id="resume_file" name="job_application[resume]" type="file" style="display:none">
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="cover_letter_file">Cover Letter</label>
+          <div class="dropzone">
+            <button type="button">Upload File</button>
+            <input id="cover_letter_file" name="job_application[cover_letter]" type="file" style="display:none">
+          </div>
+        </div>
+        <!-- A REQUIRED cover-letter upload variant — must auto-upload because
+             the asterisk turns the skip rule off. -->
+        <div class="form-field">
+          <label for="cover_letter_required">Cover Letter<span style="color:red">*</span></label>
+          <div class="dropzone">
+            <button type="button">Upload File</button>
+            <input id="cover_letter_required" name="job_application[cover_letter_required]" type="file" style="display:none">
+          </div>
+        </div>
+        <!-- REGRESSION case: custom wrapper class (field-block), label as
+             a span (no label-for), required-marker span, plus a preamble
+             that previously polluted wide asterisk scans. -->
+        <div class="preamble" style="font-weight:bold">Required fields are indicated with *</div>
+        <div class="field-block">
+          <h3>Resume</h3>
+          <div class="label-row">
+            <span class="field-label">Upload your resume/CV</span><span class="required-marker">*</span>
+          </div>
+          <div class="dropzone">
+            <span>Drag &amp; drop file</span>
+            <span class="hint">.pdf, .doc, .docx, .txt</span>
+            <button type="button">SELECT FILE</button>
+            <input id="custom_resume_input" name="application_files_2842" type="file" accept=".pdf,.doc,.docx,.txt" style="display:none">
+          </div>
+        </div>
       </form>
     </body></html>
   '></iframe>
@@ -335,12 +437,34 @@ try {
       race_multi: v('#race_multi'),
       gender_verbose: v('#gender_verbose'),
       orientation: v('#orientation'),
+      lgbtq_select: v('#lgbtq_select'),
       disability_verbose: v('#disability_verbose'),
       veteran_verbose: v('#veteran_verbose'),
       first_name_2: v('#first_name_2'),
       email_2: v('#email_2'),
       phone_2: v('#phone_2'),
       gender_2: v('#gender_2'),
+      bare_name: v('#bare_name'),
+      company_name: v('#company_name'),
+      project_name_field: v('#project_name_field'),
+      current_company: v('#current_company'),
+      current_title: v('#current_title'),
+      resume_file: (() => {
+        const el = document.querySelector('#resume_file');
+        return el && el.files ? { count: el.files.length, name: el.files[0]?.name ?? '' } : null;
+      })(),
+      cover_letter_file: (() => {
+        const el = document.querySelector('#cover_letter_file');
+        return el && el.files ? { count: el.files.length, name: el.files[0]?.name ?? '' } : null;
+      })(),
+      cover_letter_required: (() => {
+        const el = document.querySelector('#cover_letter_required');
+        return el && el.files ? { count: el.files.length, name: el.files[0]?.name ?? '' } : null;
+      })(),
+      custom_resume_input: (() => {
+        const el = document.querySelector('#custom_resume_input');
+        return el && el.files ? { count: el.files.length, name: el.files[0]?.name ?? '' } : null;
+      })(),
     };
   });
 
@@ -414,12 +538,35 @@ try {
     // 11. "do you identify as transgender? : no"
     ['transgender select = No', formState.transgender?.selectedText === 'No'],
 
+    // 12. "do you identify as LGBTQ? : no" (demographics.lgbtq="no")
+    ['LGBTQ select = No (demographics.lgbtq="no")', formState.lgbtq_select?.selectedText === 'No'],
+
     // --- The fields outside the user's 11 (cover letter + LLM-bound items) ---
 
     ['cover letter populated', (formState.cover?.value?.length ?? 0) > 50],
     [
       '"why" textarea queued for LLM',
       result.pendingQuestions.some((q) => /why/i.test(q.question) && q.fieldKind === 'textarea'),
+    ],
+    // Long-form 150-char question with intermediate hint sentence — must
+    // be queued for the LLM, NOT dropped via the old 100-char label cap.
+    [
+      'LONG-FORM: describe-a-role textarea queued for LLM',
+      result.pendingQuestions.some(
+        (q) =>
+          q.fieldKind === 'textarea' &&
+          /describe a role you were in/i.test(q.question),
+      ),
+    ],
+    // The "Please limit your answer to…" hint must NOT win over the
+    // real question label — hint-shaped text is deprioritized.
+    [
+      'LONG-FORM: hint sentence is NOT picked as the question label',
+      !result.pendingQuestions.some(
+        (q) =>
+          q.fieldKind === 'textarea' &&
+          /^please limit your answer/i.test(q.question),
+      ),
     ],
     [
       'salary input filled deterministically from bidPreferences',
@@ -458,6 +605,63 @@ try {
     ],
     ['DUPLICATE: second Phone input also fills', formState.phone_2?.value?.length > 0],
     ['DUPLICATE: second Gender SELECT also fills', formState.gender_2?.selectedText === 'Male'],
+
+    // --- BARE "Name" label fills with full name; "Company Name" / "Project
+    //     Name" do NOT fill (lookbehind disqualifier protects them). ---
+    [
+      'bare-Name field fills with full name (Jane Q. Doe)',
+      formState.bare_name?.value === 'Jane Q. Doe',
+    ],
+    [
+      'DISQUALIFIER: "Company Name" does NOT fill with candidate name',
+      !formState.company_name?.value || formState.company_name?.value === '',
+    ],
+    [
+      'DISQUALIFIER: "Project Name" does NOT fill with candidate name',
+      !formState.project_name_field?.value || formState.project_name_field?.value === '',
+    ],
+
+    // --- Current company / current title: distinct from the JD-tailored
+    //     targetTitle. Fills from data.currentCompany / data.currentTitle. ---
+    [
+      '"Current or Most Recent Company" fills with currentCompany',
+      formState.current_company?.value === 'Acme Robotics',
+    ],
+    [
+      '"Current or Most Recent Title" fills with currentTitle (NOT targetTitle)',
+      formState.current_title?.value === 'Staff Software Engineer',
+    ],
+
+    // --- File uploads: required Resume + required Cover Letter upload;
+    //     optional Cover Letter must NOT be touched (user's skip rule). ---
+    [
+      'FILE: required Resume upload received the resume PDF',
+      formState.resume_file?.count === 1 &&
+        formState.resume_file?.name === 'Jane_Doe_CV_SeniorSoftwareEngineer.pdf',
+    ],
+    [
+      'FILE: required Cover Letter upload received the cover-letter PDF',
+      formState.cover_letter_required?.count === 1 &&
+        formState.cover_letter_required?.name ===
+          'Jane_Doe_CoverLetter_SeniorSoftwareEngineer.pdf',
+    ],
+    [
+      'FILE: OPTIONAL Cover Letter upload was SKIPPED (no asterisk)',
+      formState.cover_letter_file?.count === 0,
+    ],
+    [
+      'FILE: filled report has resume-file entry',
+      result.filled.some((f) => f.category === 'resume-file'),
+    ],
+    [
+      'FILE: filled report has cover-letter-file entry (for the required one)',
+      result.filled.some((f) => f.category === 'cover-letter-file'),
+    ],
+    [
+      'FILE REGRESSION: custom-wrapper resume input fills (no <label for>, span-only label)',
+      formState.custom_resume_input?.count === 1 &&
+        formState.custom_resume_input?.name === 'Jane_Doe_CV_SeniorSoftwareEngineer.pdf',
+    ],
   ];
 
   let passed = 0;
@@ -523,6 +727,7 @@ try {
       age: v('#age'),
       gender_verbose: v('#gender_verbose'),
       orientation: v('#orientation'),
+      lgbtq_select: v('#lgbtq_select'),
       disability_verbose: v('#disability_verbose'),
       veteran_verbose: v('#veteran_verbose'),
     };
@@ -537,6 +742,7 @@ try {
     // explicit sample answers). PNTS is the secondary fallback only when
     // "No" isn't in the option list.
     ['empty: transgender → No', formState2.transgender?.selectedText === 'No'],
+    ['empty: LGBTQ → No (label-based EEO fallback)', formState2.lgbtq_select?.selectedText === 'No'],
     [
       'empty: disability_verbose → "No, I do not have a disability…"',
       /^No, I do not have a disability/i.test(formState2.disability_verbose?.selectedText ?? ''),

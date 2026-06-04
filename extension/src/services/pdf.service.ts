@@ -28,6 +28,7 @@
  */
 import { jsPDF } from 'jspdf';
 import { ATS_TEMPLATE, type ResumeTemplate, type TextStyle } from '@/templates/atsTemplate';
+import type { ProposalJson } from '@/types/proposal';
 import type { ResumeJson, ResumeSkills } from '@/types/resume';
 import { createLogger } from '@/utils/logger';
 import { MAX_SHRINK_LEVEL, shrinkResume } from './resume-shrinker';
@@ -147,9 +148,10 @@ function renderHeader(pdf: jsPDF, t: ResumeTemplate, c: Cursor, resume: ResumeJs
   pdf.text(targetTitle, t.page.width / 2, c.y, { align: 'center' });
   c.y += t.spacing.afterTitle;
 
-  // Contact — centered. Per spec, only email, phone, and LinkedIn appear.
-  // Location, GitHub, and personal website are intentionally omitted.
-  const bits = [contact.email, contact.phone, contact.linkedin].filter(
+  // Contact — centered. Per spec, only email, address, and LinkedIn appear.
+  // Phone, GitHub, and personal website are intentionally omitted. The
+  // `contact.location` field carries the address.
+  const bits = [contact.email, contact.location, contact.linkedin].filter(
     (s): s is string => Boolean(s),
   );
 
@@ -537,11 +539,31 @@ function renderCertifications(
 
 // ----- public surface -----
 
-function sanitizeFilename(s: string): string {
-  return s
-    .replace(/[\\/:*?"<>|]/g, '')
-    .replace(/\s+/g, '_')
-    .slice(0, 120);
+/**
+ * Build the PDF filename in the form `Firstname_Lastname_CV_Role.pdf`.
+ * Examples:
+ *   contact.fullName = "Marko Azirovic"
+ *   targetTitle      = "AI Full Stack Engineer"
+ *   → "Marko_Azirovic_CV_AIFullStackEngineer.pdf"
+ *
+ * Rules:
+ *  - first + last name only (middle names dropped — keeps the slug short)
+ *  - role is CamelConcatenated (spaces removed, capitalization preserved)
+ *  - illegal-on-disk chars (\ / : * ? " < > |) stripped from each part
+ *  - falls back to a single-token name / "Resume" / "CV" if pieces missing
+ */
+function buildResumeFilename(fullName: string, targetTitle: string): string {
+  const stripIllegal = (s: string): string => s.replace(/[\\/:*?"<>|]/g, '');
+
+  const nameTokens = stripIllegal(fullName).trim().split(/\s+/).filter(Boolean);
+  const first = nameTokens[0] ?? 'Resume';
+  const last = nameTokens.length > 1 ? nameTokens[nameTokens.length - 1] : '';
+
+  const roleSlug = stripIllegal(targetTitle).replace(/\s+/g, '');
+  const role = roleSlug.length > 0 ? roleSlug : 'CV';
+
+  const namePart = last ? `${first}_${last}` : first;
+  return `${namePart}_CV_${role}.pdf`.slice(0, 160);
 }
 
 /**
@@ -595,13 +617,113 @@ function renderResumeToFit(
   };
 }
 
+/**
+ * Render the resume to a base64-encoded PDF + filename pair, WITHOUT
+ * triggering a browser download. Used by the autofill engine so a "Resume"
+ * file-upload field on a bid page can be filled programmatically instead
+ * of forcing the user to download and re-upload.
+ */
+export function renderResumePdfBase64(resume: ResumeJson, maxPages = MAX_PAGES_DEFAULT): {
+  filename: string;
+  base64: string;
+} {
+  const filename = buildResumeFilename(resume.contact.fullName, resume.targetTitle);
+  const { pdf } = renderResumeToFit(resume, ATS_TEMPLATE, maxPages);
+  // jsPDF's `datauristring` returns "data:application/pdf;filename=…;base64,<b64>"
+  // — strip the prefix so consumers get the raw base64.
+  const dataUri = pdf.output('datauristring');
+  const base64 = dataUri.replace(/^data:application\/pdf[^,]*,/, '');
+  return { filename, base64 };
+}
+
+/**
+ * Render a minimal cover-letter PDF from a generated proposal. Plain text
+ * mode, ATS-readable, letter format. Used by the autofill engine when a
+ * REQUIRED cover-letter file-upload field is detected on a bid page.
+ *
+ * Layout: name + contact line at top, optional subject line, then opener,
+ * body paragraphs, highlights bullets, closer. All using the same template
+ * primitives the resume renderer uses so font/spacing decisions stay in
+ * one place.
+ */
+export function renderCoverLetterPdfBase64(
+  proposal: ProposalJson,
+  resume: ResumeJson,
+): { filename: string; base64: string } {
+  const t = ATS_TEMPLATE;
+  const pdf = new jsPDF({ unit: 'in', format: 'letter', orientation: 'portrait' });
+  const cursor: Cursor = { y: t.page.marginTop };
+
+  // Header: name + email | phone | linkedin. Mirror the resume layout so
+  // both documents look like they came from the same person.
+  applyStyle(pdf, t.styles.name);
+  cursor.y += t.spacing.headerFirstBaseline;
+  pdf.text(resume.contact.fullName, t.page.width / 2, cursor.y, { align: 'center' });
+  cursor.y += t.spacing.afterName;
+
+  const contactBits = [
+    resume.contact.email,
+    resume.contact.location,
+    resume.contact.linkedin,
+  ].filter((s): s is string => Boolean(s));
+  if (contactBits.length > 0) {
+    applyStyle(pdf, t.styles.contact);
+    pdf.text(contactBits.join(t.separators.contactJoin), t.page.width / 2, cursor.y, {
+      align: 'center',
+    });
+    cursor.y += t.spacing.afterContact;
+  }
+
+  applyStyle(pdf, t.styles.body);
+
+  if (proposal.subject) {
+    pdf.text(`Subject: ${proposal.subject}`, t.page.marginX, cursor.y);
+    cursor.y += t.spacing.bodyLineHeight * 1.5;
+  }
+
+  const width = contentWidth(t);
+  writeWrapped(pdf, t, cursor, proposal.opener, t.page.marginX, width, t.spacing.bodyLineHeight);
+  cursor.y += t.spacing.bodyLineHeight * 0.5;
+
+  for (const para of proposal.body) {
+    writeWrapped(pdf, t, cursor, para, t.page.marginX, width, t.spacing.bodyLineHeight);
+    cursor.y += t.spacing.bodyLineHeight * 0.5;
+  }
+
+  if (proposal.highlights.length > 0) {
+    renderBulletList(pdf, t, cursor, proposal.highlights);
+    cursor.y += t.spacing.bodyLineHeight * 0.5;
+  }
+
+  if (proposal.closer) {
+    applyStyle(pdf, t.styles.body);
+    writeWrapped(pdf, t, cursor, proposal.closer, t.page.marginX, width, t.spacing.bodyLineHeight);
+  }
+
+  // Filename mirrors the resume's: Firstname_Lastname_CoverLetter_Role.pdf
+  const tokens = resume.contact.fullName
+    .replace(/[\\/:*?"<>|]/g, '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const first = tokens[0] ?? 'CoverLetter';
+  const last = tokens.length > 1 ? tokens[tokens.length - 1] : '';
+  const roleSlug =
+    resume.targetTitle.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '') || 'Role';
+  const namePart = last ? `${first}_${last}` : first;
+  const filename = `${namePart}_CoverLetter_${roleSlug}.pdf`.slice(0, 160);
+
+  const dataUri = pdf.output('datauristring');
+  const base64 = dataUri.replace(/^data:application\/pdf[^,]*,/, '');
+  return { filename, base64 };
+}
+
 export async function downloadResumePdf(
   resume: ResumeJson,
   options: DownloadOptions = {},
 ): Promise<void> {
   const filename =
-    options.filename ??
-    `${sanitizeFilename(resume.contact.fullName)}_${sanitizeFilename(resume.targetTitle)}.pdf`;
+    options.filename ?? buildResumeFilename(resume.contact.fullName, resume.targetTitle);
   const maxPages = options.maxPages ?? MAX_PAGES_DEFAULT;
 
   log.info('rendering PDF', { filename, maxPages });

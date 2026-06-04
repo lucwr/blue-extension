@@ -1,9 +1,13 @@
 import { useCallback } from 'react';
 import { sendToBackground, sendToTab } from '@/services/messaging';
+import { renderCoverLetterPdfBase64, renderResumePdfBase64 } from '@/services/pdf.service';
 import { getMasterProfile } from '@/storage';
 import type { AutofillReport, AutofillUnmatchedField, BidPayload } from '@/types/messages';
 import type { MasterProfile } from '@/types/resume';
+import { createLogger } from '@/utils/logger';
 import { usePopupStore } from '../store';
+
+const log = createLogger('popup:autofill-bid');
 
 /**
  * Parse a year from a date string like "2022", "04/2024", "Jan 2024".
@@ -108,6 +112,27 @@ export function useAutofillBid(): UseAutofillBid {
     setStep('auto-filling');
     setError(null);
 
+    // Render the resume PDF (and, when we have a proposal, the cover letter
+    // PDF) BEFORE handing off to the content script — the autofill engine
+    // will programmatically upload them into any matching file-input field
+    // it finds. Render failures don't block the rest of the autofill flow:
+    // we just skip the file-upload pass and let the user drop the file
+    // manually if needed.
+    let resumePdf: { filename: string; base64: string } | undefined;
+    let coverLetterPdf: { filename: string; base64: string } | undefined;
+    try {
+      resumePdf = renderResumePdfBase64(resume);
+    } catch (err) {
+      log.warn('failed to render resume PDF for autofill upload', err);
+    }
+    if (proposal) {
+      try {
+        coverLetterPdf = renderCoverLetterPdfBase64(proposal, resume);
+      } catch (err) {
+        log.warn('failed to render cover-letter PDF for autofill upload', err);
+      }
+    }
+
     const data: BidPayload = {
       contact: {
         fullName: profile.contact.fullName,
@@ -121,6 +146,22 @@ export function useAutofillBid(): UseAutofillBid {
       targetTitle: resume.targetTitle,
       summary: resume.summary,
       yearsOfExperience: computeYearsOfExperience(profile.experience),
+      ...(resumePdf ? { resumePdf } : {}),
+      ...(coverLetterPdf ? { coverLetterPdf } : {}),
+      // Most recent role lives at index 0 of the master profile's experience
+      // array (the canonical newest-first ordering used everywhere else).
+      // Falls back to the generated resume's experience if the master profile
+      // has none — keeps "current company" working for users who imported a
+      // resume but haven't manually filled the Profile tab.
+      ...(() => {
+        const recent =
+          profile.experience[0] ?? resume.experience[0] ?? null;
+        if (!recent) return {};
+        return {
+          ...(recent.company ? { currentCompany: recent.company } : {}),
+          ...(recent.title ? { currentTitle: recent.title } : {}),
+        };
+      })(),
       ...(proposal
         ? {
             proposal: {

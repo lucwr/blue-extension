@@ -34,12 +34,28 @@ export interface HistoryEntry {
  * popup can rehydrate after being closed (clicking outside, opening another
  * window, etc.) without losing the generated resume/proposal. Cleared only
  * by an explicit Refresh action in the popup UI.
+ *
+ * The background service worker ALSO writes here when long-running work
+ * completes (resume generation, proposal generation) so the result is
+ * preserved even if the popup was closed mid-flight. `step` and `error`
+ * carry the flow state across popup-close so the user sees an accurate
+ * picture the moment they re-open the popup.
  */
 export interface PopupSession {
   jd: ExtractedJobDescription | null;
   resume: ResumeJson | null;
   proposal: ProposalJson | null;
   bidReport: AutofillReport | null;
+  /**
+   * Current flow step ('idle' | 'generating-resume' | 'generating-proposal' |
+   * 'auto-filling' | 'answering-questions' | 'extracting'). Written by the
+   * background worker when long-running work starts/ends so the popup can
+   * resume the right UI on re-open. Stored as a plain string here to avoid
+   * a cross-package import of the FlowStep type.
+   */
+  step?: string;
+  /** Last surfaced error, if any — preserved across popup close. */
+  error?: { code: string; message: string; details?: unknown } | null;
   /** ISO timestamp the session was last written. Used to invalidate stale snapshots. */
   savedAt: string;
 }
@@ -127,4 +143,30 @@ export async function setPopupSession(session: PopupSession): Promise<void> {
 
 export async function clearPopupSession(): Promise<void> {
   await removeValue(StorageKeys.PopupSession);
+}
+
+/**
+ * Partial update for PopupSession. Used by the background service worker
+ * when long-running work (resume / proposal generation) starts or
+ * completes — it lets the worker write `step`, `error`, `resume`, or
+ * `proposal` without clobbering the popup's other fields. Returns the
+ * full resulting session.
+ */
+export async function mergePopupSession(
+  patch: Partial<PopupSession>,
+): Promise<PopupSession> {
+  const existing = (await getPopupSession()) ?? {
+    jd: null,
+    resume: null,
+    proposal: null,
+    bidReport: null,
+    savedAt: new Date().toISOString(),
+  };
+  const merged: PopupSession = {
+    ...existing,
+    ...patch,
+    savedAt: new Date().toISOString(),
+  };
+  await setPopupSession(merged);
+  return merged;
 }

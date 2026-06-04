@@ -3,7 +3,7 @@
  * and is dispatched to the appropriate API call. Content-script messages are
  * forwarded to the originating tab.
  */
-import { getMasterProfile, getSettings, pushHistory } from '@/storage';
+import { getMasterProfile, getSettings, mergePopupSession, pushHistory } from '@/storage';
 import type {
   AnswerQuestionsMessage,
   AppError,
@@ -69,7 +69,14 @@ async function handleImportResumePdf(
 
 async function handleResume(msg: GenerateResumeMessage): Promise<MessageResult<'BG_GENERATE_RESUME'>> {
   const profileGuard = await requireMasterProfile();
-  if (!profileGuard.ok) return { ok: false, error: profileGuard.error };
+  if (!profileGuard.ok) {
+    await mergePopupSession({ step: 'idle', error: profileGuard.error });
+    return { ok: false, error: profileGuard.error };
+  }
+  // Snapshot to PopupSession so a popup re-opened mid-flight sees the
+  // "Generating…" state, then the result, even if its sendResponse
+  // listener was already torn down.
+  await mergePopupSession({ jd: msg.payload.jd, step: 'generating-resume', error: null });
   try {
     const resume = await api.generateResume({
       jd: msg.payload.jd,
@@ -87,9 +94,15 @@ async function handleResume(msg: GenerateResumeMessage): Promise<MessageResult<'
       resume,
       proposal: null,
     });
+    // Write the completed resume back to PopupSession so a re-opened
+    // popup picks it up via hydrate() — even if the message-bus reply
+    // was lost because the popup closed while we were generating.
+    await mergePopupSession({ resume, step: 'idle', error: null });
     return { ok: true, data: resume };
   } catch (err) {
-    return { ok: false, error: toAppError(err) };
+    const error = toAppError(err);
+    await mergePopupSession({ step: 'idle', error });
+    return { ok: false, error };
   }
 }
 
@@ -97,16 +110,23 @@ async function handleProposal(
   msg: GenerateProposalMessage,
 ): Promise<MessageResult<'BG_GENERATE_PROPOSAL'>> {
   const profileGuard = await requireMasterProfile();
-  if (!profileGuard.ok) return { ok: false, error: profileGuard.error };
+  if (!profileGuard.ok) {
+    await mergePopupSession({ step: 'idle', error: profileGuard.error });
+    return { ok: false, error: profileGuard.error };
+  }
+  await mergePopupSession({ jd: msg.payload.jd, step: 'generating-proposal', error: null });
   try {
     const proposal = await api.generateProposal({
       jd: msg.payload.jd,
       masterProfile: profileGuard.profile,
       tone: msg.payload.tone,
     });
+    await mergePopupSession({ proposal, step: 'idle', error: null });
     return { ok: true, data: proposal };
   } catch (err) {
-    return { ok: false, error: toAppError(err) };
+    const error = toAppError(err);
+    await mergePopupSession({ step: 'idle', error });
+    return { ok: false, error };
   }
 }
 

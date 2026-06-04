@@ -107,6 +107,8 @@ export interface ResumeDemographics {
   transgender: YesNoPNTS;
   /** "Are you Hispanic/Latino?" — separate yes/no/PNTS field on US EEO forms. */
   hispanicLatino: YesNoPNTS;
+  /** "Do you identify as LGBTQ?" — separate EEO question (yes / no / PNTS). */
+  lgbtq: YesNoPNTS;
   pronouns: string;
 }
 
@@ -162,6 +164,7 @@ export const EMPTY_DEMOGRAPHICS: ResumeDemographics = {
   disability: '',
   transgender: '',
   hispanicLatino: '',
+  lgbtq: '',
   pronouns: '',
 };
 

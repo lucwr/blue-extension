@@ -15,3 +15,26 @@ body,
 * {
   box-sizing: border-box;
 }
+
+/* Status-bar shimmer rule — used while a flow step is running. */
+@keyframes rmShimmer {
+  0% { opacity: 0; transform: translateX(-30%); }
+  50% { opacity: 1; transform: translateX(0%); }
+  100% { opacity: 0; transform: translateX(30%); }
+}
+
+/* Slim scrollbar so the popup's overflow doesn't get a chunky default. */
+.rm-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.rm-scroll::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.18);
+  border-radius: 3px;
+}
+.rm-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.32);
+}
+.rm-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}

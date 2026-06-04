@@ -47,6 +47,8 @@ type Category =
   | 'website'
   | 'title'
   | 'years-experience'
+  | 'current-company'
+  | 'current-title'
   | 'subject'
   | 'cover-letter'
   | 'summary'
@@ -58,6 +60,7 @@ type Category =
   | 'disability-status'
   | 'transgender'
   | 'hispanic-latino'
+  | 'lgbtq'
   | 'pronouns'
   | 'prior-employment'
   | 'relevant-experience'
@@ -102,7 +105,17 @@ const MATCHERS: ReadonlyArray<{ category: Category; re: RegExp; weight: number }
   },
   {
     category: 'full-name',
-    re: /\b(full[-_ ]?name|your[-_ ]?name|applicant[-_ ]?name|legal[-_ ]?name|complete[-_ ]?name)\b|^name$/,
+    // The bare-token `\bname\b` branch catches fields labelled just "Name" —
+    // the old `^name$` anchor never matched because the haystack joins
+    // name attr + id + placeholder + aria-label + label text and is never
+    // literally the single token "name".
+    //
+    // A negative lookbehind protects against false positives on common
+    // form labels where "name" refers to something else: company name,
+    // user name, school name, project name, organization name, etc. If the
+    // candidate's actual name field is preceded by one of those qualifiers,
+    // that disqualifier wins and the bare-name branch refuses to match.
+    re: /\b(full[-_ ]?name|your[-_ ]?name|applicant[-_ ]?name|legal[-_ ]?name|complete[-_ ]?name|(?<!\b(?:company|business|brand|organization|user|display|nick|account|screen|file|host|server|product|domain|school|university|college|project|page|item|tab|tag|spouse|parent|guardian|emergency|reference|street|city|country|state|prov(?:ince)?)[-_ ]?)name)\b/,
     weight: 100,
   },
 
@@ -151,6 +164,14 @@ const MATCHERS: ReadonlyArray<{ category: Category; re: RegExp; weight: number }
     // keywords appear in the same label (e.g. "Race / Ethnicity / Hispanic").
     category: 'hispanic-latino',
     re: /\b(hispanic|latino|latinx|latin[-_ ]?(american|x))\b/,
+    weight: 130,
+  },
+  // "Do you identify as LGBTQ?" — separate EEO/diversity question on
+  // Greenhouse / Workable / Lever. Cover the alphabet variants in use
+  // (lgbtq, lgbt, lgbtqia, lgbtq+, queer, sexual orientation).
+  {
+    category: 'lgbtq',
+    re: /\b(lgbtq?(ia\+?|\+|i\+|2s\+)?|lgbt|queer|sexual[-_ ]?orientation)\b/,
     weight: 130,
   },
   { category: 'pronouns', re: /\bpronouns?\b/, weight: 100 },
@@ -211,7 +232,28 @@ const MATCHERS: ReadonlyArray<{ category: Category; re: RegExp; weight: number }
     weight: 90,
   },
 
-  // Title / position
+  // "Current or Most Recent Company" / "Current Employer" / "Most Recent
+  // Workplace" / "Previous Company" — fills with the candidate's most recent
+  // employer (NOT the JD's company). Weight 150 puts this above the generic
+  // title/company matchers so the more specific intent wins.
+  {
+    category: 'current-company',
+    re: /\b(current|present|most[-_ ]?recent|previous|prior|last|latest)([-_ ]?(or)?[-_ ]?(most[-_ ]?recent|previous))?[-_ ]?(company|employer|workplace|organization|organisation|firm)\b/,
+    weight: 150,
+  },
+  // "Current or Most Recent Title" / "Current Position" / "Present Role" /
+  // "Most Recent Job Title" — fills with the candidate's most recent role
+  // title (NOT data.targetTitle, which is the JD-tailored title the candidate
+  // is applying for). Weight 150 to beat the generic `title` matcher (70).
+  {
+    category: 'current-title',
+    re: /\b(current|present|most[-_ ]?recent|previous|prior|last|latest)([-_ ]?(or)?[-_ ]?(most[-_ ]?recent|previous))?[-_ ]?(title|position|role|job[-_ ]?title)\b/,
+    weight: 150,
+  },
+
+  // Title / position — the JD-tailored title the candidate is APPLYING for.
+  // Note: "current title" still matches here too, so the more-specific
+  // current-title matcher above (weight 150) wins via the score ladder.
   {
     category: 'title',
     re: /\b(current[-_ ]?title|job[-_ ]?title|position[-_ ]?title|desired[-_ ]?title|role[-_ ]?title)\b/,
@@ -308,6 +350,54 @@ function isVisible(el: HTMLElement): boolean {
  *      the common React Hook Form layout `<div><label>…</label><div><input/></div></div>`
  *   7. data-label / data-field-label attributes (some component libs)
  */
+/**
+ * "Hint-shaped" auxiliary text that lives next to a real question label —
+ * things like "Please limit your answer to no more than three paragraphs."
+ * or "Optional. 200 char max.". When BOTH a hint and a real question label
+ * are reachable, we must NOT return the hint as the label; otherwise
+ * `isQuestionLike` returns false and the textarea silently falls out of
+ * the LLM-answer pipeline.
+ */
+const HINT_RE =
+  /^(please\b|optional\b|note:|tip:|max\b|maximum\b|min\b|minimum\b|\d+\s*(char|character|word)s?\b|hint:|format:|example:)/i;
+
+/** Heuristic: text looks like a real question label rather than a hint. */
+function looksLikeQuestion(text: string): boolean {
+  if (!text) return false;
+  if (HINT_RE.test(text)) return false;
+  if (text.includes('?')) return true;
+  return /^(why|how|what|describe|tell|explain|provide|share|do you|are you|have you|would you|could you|when|where|by submitting|i (?:consent|agree)|consent|acknowledge)\b/i.test(
+    text,
+  );
+}
+
+/**
+ * Pick the best candidate label from a list of sibling/child texts. Prefers
+ * question-shaped text when present, otherwise the LAST hint-free string
+ * (closest in document order to the input). Returns empty when nothing
+ * passes the length cap.
+ */
+function pickBestLabel(candidates: string[], maxLen: number): string {
+  const cleaned = candidates
+    .map((t) => t.replace(/\s+/g, ' ').trim())
+    .filter((t) => t.length > 0 && t.length <= maxLen);
+  if (cleaned.length === 0) return '';
+  // Question-shaped text always wins.
+  const question = cleaned.find(looksLikeQuestion);
+  if (question) return question;
+  // Otherwise pick the last non-hint candidate.
+  const nonHint = cleaned.filter((t) => !HINT_RE.test(t));
+  if (nonHint.length > 0) return nonHint[nonHint.length - 1]!;
+  return cleaned[cleaned.length - 1]!;
+}
+
+// 500-char cap for free-text question labels. Long-form bid questions
+// ("Describe a role you were in or a project you led that brought out
+// your absolute best work? What setup or attributes of the role/project
+// enabled that?") commonly land in the 150-300 char range. The old cap
+// at 100/120 was rejecting them and breaking the LLM-answer pipeline.
+const LABEL_MAX_LEN = 500;
+
 function findLabelText(el: HTMLElement): string {
   // 1. for=id
   const inputId = (el as HTMLInputElement).id;
@@ -335,37 +425,49 @@ function findLabelText(el: HTMLElement): string {
   // 4. aria-label
   const ariaLabel = el.getAttribute('aria-label')?.trim();
   if (ariaLabel) return ariaLabel;
-  // 5. immediate previous sibling
-  let prev = el.previousElementSibling;
-  let hops = 0;
-  while (prev && hops < 3) {
-    const tag = prev.tagName.toLowerCase();
-    if (tag === 'label' || tag === 'span' || tag === 'div' || tag === 'p') {
-      const t = prev.textContent?.trim();
-      if (t && t.length < 100) return t;
+  // 5. previous siblings — collect candidates and pick the best.
+  // Walks up to 4 previous siblings (was 3) so a hint sentence between the
+  // question and the input doesn't crowd the real label out of range.
+  {
+    const candidates: string[] = [];
+    let prev = el.previousElementSibling;
+    let hops = 0;
+    while (prev && hops < 4) {
+      const tag = prev.tagName.toLowerCase();
+      if (['label', 'span', 'div', 'p', 'strong', 'h3', 'h4', 'h5'].includes(tag)) {
+        const t = prev.textContent?.trim();
+        if (t) candidates.push(t);
+      }
+      prev = prev.previousElementSibling;
+      hops += 1;
     }
-    prev = prev.previousElementSibling;
-    hops += 1;
+    const best = pickBestLabel(candidates, LABEL_MAX_LEN);
+    if (best) return best;
   }
-  // 6. walk up to 3 parents, look for nearest label/span/div with short text
+  // 6. walk up to 3 parents, collect ALL candidate texts in each scope,
+  // then pick the best (question-shaped wins; hints are deprioritized).
   let parent: HTMLElement | null = el.parentElement;
   let lvl = 0;
   while (parent && lvl < 3) {
-    const candidates = parent.querySelectorAll<HTMLElement>('label, [class*="label" i], [class*="Label"]');
-    for (const c of candidates) {
+    const candidates: string[] = [];
+    const labels = parent.querySelectorAll<HTMLElement>(
+      'label, [class*="label" i], [class*="Label"]',
+    );
+    for (const c of labels) {
       if (c.contains(el)) continue;
       const t = c.textContent?.trim();
-      if (t && t.length > 0 && t.length < 120) return t;
+      if (t) candidates.push(t);
     }
-    // Also try the parent's FIRST direct text-bearing child
     for (const child of Array.from(parent.children)) {
       if (child.contains(el)) continue;
       const tag = child.tagName.toLowerCase();
       if (['label', 'span', 'div', 'p', 'strong', 'h3', 'h4', 'h5'].includes(tag)) {
         const t = child.textContent?.trim();
-        if (t && t.length > 0 && t.length < 120) return t;
+        if (t) candidates.push(t);
       }
     }
+    const best = pickBestLabel(candidates, LABEL_MAX_LEN);
+    if (best) return best;
     parent = parent.parentElement;
     lvl += 1;
   }
@@ -500,6 +602,10 @@ function valueForCategory(category: Category, data: BidPayload): string {
       return data.contact.website ?? '';
     case 'title':
       return data.targetTitle;
+    case 'current-company':
+      return data.currentCompany ?? '';
+    case 'current-title':
+      return data.currentTitle ?? '';
     case 'years-experience':
       return String(data.yearsOfExperience);
     case 'subject':
@@ -524,6 +630,8 @@ function valueForCategory(category: Category, data: BidPayload): string {
       return yesNoLabel(data.demographics?.transgender ?? '');
     case 'hispanic-latino':
       return yesNoLabel(data.demographics?.hispanicLatino ?? '');
+    case 'lgbtq':
+      return yesNoLabel(data.demographics?.lgbtq ?? '');
     case 'pronouns':
       return data.demographics?.pronouns ?? '';
     // Bid preferences — user-configurable defaults so common Greenhouse
@@ -551,18 +659,64 @@ function valueForCategory(category: Category, data: BidPayload): string {
 // ---------- field writers ----------
 
 /**
+ * Strict numeric/date/time input types reject any value the browser
+ * can't parse, emitting a "The specified value '…' cannot be parsed,
+ * or is out of range." warning AND silently dropping the assignment.
+ *
+ * For <input type="number"> we strip the value down to a parseable
+ * numeric form (digits, optional decimal, optional leading minus).
+ * Phone numbers like "+381 62 844 0624" then become "381628440624"
+ * — still not great UX (the user typed it with a +), but it lands
+ * digits the page can submit, and the dropped warning means the
+ * console stays clean.
+ *
+ * For date / time / datetime-local / week / month / range, we don't
+ * try to coerce — values from the profile aren't in the right format
+ * and forcing one wrong is worse than leaving the field for the user.
+ * Returns null in that case so the caller can decide what to do.
+ */
+function coerceValueForInputType(
+  el: HTMLInputElement | HTMLTextAreaElement,
+  value: string,
+): string | null {
+  if (el.tagName === 'TEXTAREA') return value;
+  const type = (el as HTMLInputElement).type.toLowerCase();
+  if (type === 'number' || type === 'range') {
+    // Keep digits + at most one leading '-' + at most one decimal point.
+    const cleaned = value.replace(/[^\d.\-]/g, '');
+    const match = cleaned.match(/^-?\d+(\.\d+)?/);
+    return match ? match[0] : null;
+  }
+  if (type === 'date' || type === 'time' || type === 'datetime-local' || type === 'week' || type === 'month') {
+    // Free-form profile values won't match these strict formats. Skip the
+    // write rather than triggering the parse warning.
+    return null;
+  }
+  return value;
+}
+
+/**
  * React-compatible value setter for <input> / <textarea>. Writes through the
  * prototype setter so frameworks that patch the instance setter still pick
  * up the change via the dispatched events.
+ *
+ * Returns true if the write landed, false if the value was skipped because
+ * it didn't match the input's strict-typed format (number/date/time/etc.).
  */
-function setNativeInputValue(el: HTMLInputElement | HTMLTextAreaElement, value: string): void {
+function setNativeInputValue(
+  el: HTMLInputElement | HTMLTextAreaElement,
+  value: string,
+): boolean {
+  const coerced = coerceValueForInputType(el, value);
+  if (coerced === null) return false;
   const proto =
     el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   const protoSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-  if (protoSetter) protoSetter.call(el, value);
-  else (el as { value: string }).value = value;
+  if (protoSetter) protoSetter.call(el, coerced);
+  else (el as { value: string }).value = coerced;
   el.dispatchEvent(new Event('input', { bubbles: true }));
   el.dispatchEvent(new Event('change', { bubbles: true }));
+  return true;
 }
 
 /**
@@ -765,8 +919,7 @@ function writeField(field: ClassifiedField, value: string): boolean {
   if (el.tagName === 'INPUT' && (el as HTMLInputElement).type === 'radio') {
     return clickRadioByLabel((el as HTMLInputElement).name, value);
   }
-  setNativeInputValue(el as HTMLInputElement | HTMLTextAreaElement, value);
-  return true;
+  return setNativeInputValue(el as HTMLInputElement | HTMLTextAreaElement, value);
 }
 
 // ---------- pipeline ----------
@@ -1911,14 +2064,18 @@ function pickSelectDefault(el: HTMLSelectElement, labelText: string): string | n
   // it explicitly so the binary No-default path runs (rather than
   // PNTS-default for unrecognized EEO).
   const isEEO =
-    /\b(race|ethnicity|gender|sex(?:ual)?|transgender|orientation|disability|veteran|protected[-_ ]?veteran|age|pronouns?|hispanic|latino|latinx)\b/.test(
+    /\b(race|ethnicity|gender|sex(?:ual)?|transgender|orientation|disability|veteran|protected[-_ ]?veteran|age|pronouns?|hispanic|latino|latinx|lgbtq?|queer)\b/.test(
       label,
     );
   if (isEEO) {
     // Binary EEO ("Are you a veteran?", "Do you identify as transgender?",
-    // "Do you have a disability?", "Are you Hispanic/Latino?") → "No" first,
-    // PNTS as the fallback.
-    if (/\b(disability|disabled|veteran|protected|transgender|hispanic|latino|latinx)\b/.test(label)) {
+    // "Do you have a disability?", "Are you Hispanic/Latino?",
+    // "Do you identify as LGBTQ?") → "No" first, PNTS as the fallback.
+    if (
+      /\b(disability|disabled|veteran|protected|transgender|hispanic|latino|latinx|lgbtq?|queer)\b/.test(
+        label,
+      )
+    ) {
       const no = pickOption(options, isNo);
       if (no) return no;
       const pnts = pickOption(options, isPnts);
@@ -1990,6 +2147,296 @@ function fillSelectField(
   const fallback = pickSelectDefault(el, cls.labelText);
   if (fallback && setSelectValue(el, fallback)) return fallback;
   return null;
+}
+
+// ---------- file-upload pass (resume + cover-letter PDFs) ----------
+
+/** What kind of document a file-upload field is asking for. */
+type FileFieldKind = 'resume-file' | 'cover-letter-file';
+
+/**
+ * Find every `<input type="file">` on the page, INCLUDING hidden ones.
+ * Modern bid forms (react-dropzone, Greenhouse new UI, Ashby, Workday) hide
+ * the real file input behind a styled "Upload File" button and a wrapping
+ * dropzone div. The hidden input is still in the DOM and can still receive
+ * a programmatic upload via the DataTransfer trick — so we deliberately
+ * IGNORE the `isVisible` check for this pass.
+ */
+function findAllFileInputs(): HTMLInputElement[] {
+  return Array.from(document.querySelectorAll<HTMLInputElement>('input[type="file"]'));
+}
+
+/**
+ * Find the label / aria-label / wrapping dropzone text associated with a
+ * file input. The visible label for a hidden file input is usually on the
+ * wrapping element (the styled "Upload File" container), not on the input
+ * itself. We walk up to a reasonable ancestor and pull text.
+ */
+function fileInputContext(input: HTMLInputElement): {
+  text: string;
+  required: boolean;
+} {
+  // ----- Find the per-field container -----
+  // Walk up the DOM until we hit an ancestor that contains MORE than one
+  // `<input type="file">`. The level BELOW that is the tightest scope that
+  // owns just this field. This is the key invariant — without it, the
+  // walker reaches <form> and pulls in every sibling section's label
+  // (cross-contaminating "Resume" with "Cover Letter", "LinkedIn", etc.).
+  let container: HTMLElement = input.parentElement ?? input;
+  let walker: HTMLElement | null = input.parentElement;
+  for (let hops = 0; walker && hops < 10; hops += 1) {
+    if (walker.tagName === 'FORM' || walker.tagName === 'BODY') break;
+    const count = walker.querySelectorAll('input[type="file"]').length;
+    if (count > 1) break;
+    container = walker;
+    walker = walker.parentElement;
+  }
+
+  // ----- CLASSIFICATION TEXT — scoped to the per-field container -----
+  // The strict wrapper-class match used previously broke on any site that
+  // doesn't use the exact `form-field` / `field` / `form-group` class
+  // names (Mux, Ashby, custom dropzones, etc.). We now use a STRUCTURAL
+  // boundary instead of a class-name match, so any wrapper works.
+  const directLabel = findLabelText(input);
+  const classifyParts: string[] = [
+    directLabel,
+    input.name ?? '',
+    input.id ?? '',
+    input.getAttribute('aria-label') ?? '',
+    input.getAttribute('accept') ?? '',
+    input.getAttribute('data-test') ?? '',
+    input.getAttribute('data-testid') ?? '',
+  ];
+
+  // Pull heading/label/button text from INSIDE the per-field container.
+  const localText = (container.textContent ?? '').trim();
+  if (localText && localText.length < 800) classifyParts.push(localText);
+  const containerAria = container.getAttribute('aria-label');
+  if (containerAria) classifyParts.push(containerAria);
+
+  const joined = classifyParts.filter(Boolean).join(' ').toLowerCase().replace(/\s+/g, ' ');
+
+  // ----- REQUIRED DETECTION — STRICT, near-only -----
+  // Bid pages frequently include a preamble like "Required fields are
+  // indicated with *", which the wide classification scope above would
+  // see — making EVERY file input look required. So required-detection
+  // uses a narrower signal set:
+  //   1. the input itself has `required`
+  //   2. aria-required="true"
+  //   3. the DIRECT label (via findLabelText) contains "*"
+  //   4. a label-like sibling within the immediate parent contains "*"
+  //   5. a "required-marker" element (class containing "required", or a
+  //      <sup>* / red-colored span) sits inside the immediate wrapper
+  const requiredAttr = input.hasAttribute('required');
+  const ariaRequired = input.getAttribute('aria-required') === 'true';
+  let starInLabel = /\*/.test(directLabel);
+
+  if (!starInLabel) {
+    // Direct parent: short text + asterisk → that's a label, not the
+    // form-wide "required fields are indicated with *" preamble.
+    const parent = input.parentElement;
+    const parentText = parent?.textContent?.trim() ?? '';
+    if (parentText.length > 0 && parentText.length < 120 && /\*/.test(parentText)) {
+      starInLabel = true;
+    }
+  }
+
+  if (!starInLabel) {
+    // Look in the immediate field wrapper (closest container that scopes
+    // to this one field) for a required-marker element.
+    const wrapper = input.closest(
+      'label, fieldset, .field, .form-field, [class*="field"], [class*="form-group"], [data-test*="field"]',
+    );
+    if (wrapper) {
+      const marker = wrapper.querySelector(
+        '[class*="required"], [class*="asterisk"], sup, [aria-label="required"]',
+      );
+      if (marker && /\*/.test(marker.textContent ?? '')) {
+        starInLabel = true;
+      }
+    }
+  }
+
+  return { text: joined, required: requiredAttr || ariaRequired || starInLabel };
+}
+
+/**
+ * Classify a file input as resume / cover-letter / unknown based on label
+ * + name + id + nearby wrapper text. Matched on a small set of strong
+ * keywords — anything ambiguous falls through to 'unknown' and is left
+ * for the user.
+ */
+function classifyFileInput(text: string): FileFieldKind | 'unknown' {
+  // Cover letter wins over resume when both keywords appear, because the
+  // CV/resume keyword may show up incidentally in a cover-letter label
+  // (e.g. "Cover letter (in addition to your CV)").
+  if (
+    /\b(cover[-_ ]?letter|coverletter|motivation[-_ ]?letter|motivationletter|letter[-_ ]?of[-_ ]?motivation)\b/.test(
+      text,
+    )
+  ) {
+    return 'cover-letter-file';
+  }
+  // Match resume / cv / curriculum vitae, including common compound phrases:
+  // "upload (your) resume", "attach cv", "resume / cv", "resume_file",
+  // "cv-upload", "resumeOrCv". \b doesn't recognize "/" or "-" boundaries
+  // around CV inside words like "CVS" — we anchor on word boundaries +
+  // explicit separators.
+  if (
+    /\b(resume|résumé|curriculum[-_ ]?vitae)\b/.test(text) ||
+    /(^|[\s/_\-.\[(])cv($|[\s/_\-.\])])/.test(text)
+  ) {
+    return 'resume-file';
+  }
+  return 'unknown';
+}
+
+/**
+ * Decode a base64 PDF into a real `File` object the browser will accept
+ * when assigned via DataTransfer. The atob loop is ~2 lines of math but
+ * the conversion is the load-bearing step — without a real File the
+ * receiving dropzone shows nothing.
+ */
+function base64ToFile(base64: string, filename: string, mime = 'application/pdf'): File {
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+  const blob = new Blob([bytes], { type: mime });
+  return new File([blob], filename, { type: mime });
+}
+
+/**
+ * Programmatically assign a file to an `<input type="file">`. Uses the
+ * DataTransfer trick: `input.files` is a `FileList` and is normally
+ * read-only, but the property setter accepts a `FileList` built from a
+ * `DataTransfer` instance. Dispatches `change` (and `input`, for some
+ * react-dropzone wrappers) so the framework picks it up.
+ *
+ * Returns true if the assignment landed (the input's `files` length grew),
+ * false on failure (some highly custom dropzones short-circuit the input
+ * entirely and would need a synthesized drop event instead).
+ */
+function uploadFileToInput(input: HTMLInputElement, file: File): boolean {
+  try {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    input.files = dt.files;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return input.files.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * File-upload pass: scan every `<input type="file">`, classify it as a
+ * resume or cover-letter upload, and programmatically attach the
+ * pre-rendered PDF blob carried by `data.resumePdf` / `data.coverLetterPdf`.
+ *
+ * Required vs. optional:
+ *   - Resume file inputs: ALWAYS uploaded when we have a resume PDF.
+ *     The resume is the primary artifact every bid wants — uploading it
+ *     even to an optional field saves the user a click.
+ *   - Cover-letter file inputs: ONLY uploaded when the field is REQUIRED
+ *     (red asterisk in label, `required` attr, or `aria-required="true"`).
+ *     Per the user's spec: "if there is red * near the tag name, please
+ *     auto-fill that tag but if not, it can be skippable for cover letter."
+ */
+function autofillFileInputs(data: BidPayload): {
+  filled: AutofillFilled[];
+  totalFields: number;
+  unmatched: AutofillUnmatchedField[];
+} {
+  const inputs = findAllFileInputs();
+  const filled: AutofillFilled[] = [];
+  const unmatched: AutofillUnmatchedField[] = [];
+
+  for (let i = 0; i < inputs.length; i += 1) {
+    const input = inputs[i];
+    if (!input || input.disabled) continue;
+    // Don't overwrite a file the user already attached.
+    if (input.files && input.files.length > 0) continue;
+
+    const ctx = fileInputContext(input);
+    const kind = classifyFileInput(ctx.text);
+
+    if (kind === 'unknown') {
+      unmatched.push({
+        fieldKey: `file:${i}`,
+        label: ctx.text.slice(0, 80),
+        fieldKind: 'input',
+        selectorHint: ctx.text.slice(0, 60) || input.name || input.id || '(file)',
+        reason: 'no-classification',
+      });
+      continue;
+    }
+
+    if (kind === 'resume-file') {
+      if (!data.resumePdf) {
+        unmatched.push({
+          fieldKey: `file:${i}`,
+          label: ctx.text.slice(0, 80),
+          fieldKind: 'input',
+          selectorHint: ctx.text.slice(0, 60) || input.name || input.id || '(resume)',
+          reason: 'no-value',
+        });
+        continue;
+      }
+      const file = base64ToFile(data.resumePdf.base64, data.resumePdf.filename);
+      if (uploadFileToInput(input, file)) {
+        filled.push({
+          category: 'resume-file',
+          preview: data.resumePdf.filename,
+          selectorHint: ctx.text.slice(0, 60) || 'Resume',
+        });
+      } else {
+        unmatched.push({
+          fieldKey: `file:${i}`,
+          label: ctx.text.slice(0, 80),
+          fieldKind: 'input',
+          selectorHint: ctx.text.slice(0, 60) || 'Resume',
+          reason: 'option-mismatch',
+        });
+      }
+      continue;
+    }
+
+    // kind === 'cover-letter-file'
+    if (!ctx.required) {
+      // Optional cover letter upload: skip per spec. Don't even surface as
+      // unmatched — the user explicitly asked for this to be skippable.
+      continue;
+    }
+    if (!data.coverLetterPdf) {
+      unmatched.push({
+        fieldKey: `file:${i}`,
+        label: ctx.text.slice(0, 80),
+        fieldKind: 'input',
+        selectorHint: ctx.text.slice(0, 60) || 'Cover letter',
+        reason: 'no-value',
+      });
+      continue;
+    }
+    const coverFile = base64ToFile(data.coverLetterPdf.base64, data.coverLetterPdf.filename);
+    if (uploadFileToInput(input, coverFile)) {
+      filled.push({
+        category: 'cover-letter-file',
+        preview: data.coverLetterPdf.filename,
+        selectorHint: ctx.text.slice(0, 60) || 'Cover letter',
+      });
+    } else {
+      unmatched.push({
+        fieldKey: `file:${i}`,
+        label: ctx.text.slice(0, 80),
+        fieldKind: 'input',
+        selectorHint: ctx.text.slice(0, 60) || 'Cover letter',
+        reason: 'option-mismatch',
+      });
+    }
+  }
+
+  return { filled, totalFields: inputs.length, unmatched };
 }
 
 /**
@@ -2155,13 +2602,20 @@ export async function autofillBidForm(data: BidPayload): Promise<AutofillReport>
   };
   document.addEventListener('submit', blockSubmit, true);
   try {
+    const files = autofillFileInputs(data);
     const native = autofillNativeFields(data);
     const choice = autofillChoiceGroups(data);
     const react = await autofillReactSelects(data);
     return {
-      filled: [...native.filled, ...choice.filled, ...react.filled],
-      totalFields: native.totalFields + choice.totalFields + react.totalFields,
-      unmatchedFields: [...native.unmatched, ...choice.unmatched, ...react.unmatched],
+      filled: [...files.filled, ...native.filled, ...choice.filled, ...react.filled],
+      totalFields:
+        files.totalFields + native.totalFields + choice.totalFields + react.totalFields,
+      unmatchedFields: [
+        ...files.unmatched,
+        ...native.unmatched,
+        ...choice.unmatched,
+        ...react.unmatched,
+      ],
       pendingQuestions: [
         ...native.pendingQuestions,
         ...choice.pendingQuestions,
@@ -2194,8 +2648,9 @@ export function fillAnswers(answers: Array<{ fieldIndex: number; answer: string 
       continue;
     }
     if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
-      setNativeInputValue(el as HTMLInputElement | HTMLTextAreaElement, answer);
-      filled += 1;
+      if (setNativeInputValue(el as HTMLInputElement | HTMLTextAreaElement, answer)) {
+        filled += 1;
+      }
     }
   }
   return filled;
@@ -2237,8 +2692,9 @@ export async function fillUnmatched(
         if (el.tagName === 'SELECT') {
           if (setSelectValue(el as HTMLSelectElement, value)) filled += 1;
         } else if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
-          setNativeInputValue(el as HTMLInputElement | HTMLTextAreaElement, value);
-          filled += 1;
+          if (setNativeInputValue(el as HTMLInputElement | HTMLTextAreaElement, value)) {
+            filled += 1;
+          }
         }
         continue;
       }

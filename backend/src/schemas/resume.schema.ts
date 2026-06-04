@@ -131,6 +131,8 @@ export const ResumeDemographicsSchema = z.object({
   transgender: z.enum(['yes', 'no', 'prefer-not-to-say', '']).default(''),
   /** "Are you Hispanic/Latino?" — US EEO standard asks this separately from race. */
   hispanicLatino: z.enum(['yes', 'no', 'prefer-not-to-say', '']).default(''),
+  /** "Do you identify as LGBTQ?" — separate Greenhouse / Workable EEO question. */
+  lgbtq: z.enum(['yes', 'no', 'prefer-not-to-say', '']).default(''),
   /** Pronouns the candidate prefers (e.g. "she/her", "they/them"). */
   pronouns: z.string().max(40).default(''),
 });

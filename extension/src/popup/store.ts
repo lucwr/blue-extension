@@ -40,6 +40,13 @@ interface PopupState {
   /** Hydrate from chrome.storage. Safe to call multiple times — no-ops once hydrated. */
   hydrate: () => Promise<void>;
   /**
+   * Apply a fresh PopupSession from chrome.storage WITHOUT triggering the
+   * persist write-through. Called by the popup-side chrome.storage.onChanged
+   * listener so that work the background completed while the popup was
+   * closed (or while it was open in another window) reflects immediately.
+   */
+  syncFromSession: (session: PopupSession) => void;
+  /**
    * Explicit user-driven refresh — wipes both the in-memory state AND the
    * persisted snapshot. Triggered by the Refresh button or the F5 keybinding.
    * The transient `step` and `error` slots are reset too.
@@ -48,9 +55,21 @@ interface PopupState {
 }
 
 /**
- * Persisted slice — the fields we mirror into chrome.storage so that the
- * popup picks up where it left off when re-opened. We deliberately exclude
- * `step`, `error`, and `hydrated` because they're transient/UI-only.
+ * Persisted slice — what we mirror into chrome.storage so the popup picks
+ * up its working artifacts (JD, resume, proposal, bid report) when
+ * re-opened. The transient UI fields — `step` and `error` — are NOT
+ * persisted:
+ *
+ *  - `error` would otherwise surface forever on every subsequent open
+ *    after a single failure, even though nothing is wrong anymore.
+ *  - `step` would otherwise stay non-idle forever if the bg never wrote
+ *    its 'idle' completion (popup closed mid-flight + bg crashed / went
+ *    offline / hit a transient error), locking every button.
+ *
+ * If the bg IS still generating when the popup re-opens, the
+ * `chrome.storage.onChanged` listener wired in App.tsx will restore step
+ * the moment the bg writes its next snapshot — no info is lost, just no
+ * spinner during the gap.
  */
 function toSession(state: PopupState): PopupSession {
   return {
@@ -81,7 +100,10 @@ export const usePopupStore = create<PopupState>((set, get) => ({
   bidReport: null,
   error: null,
 
-  setStep: (step) => set({ step }),
+  setStep: (step) => {
+    set({ step });
+    persist(get());
+  },
   setJd: (jd) => {
     set({ jd });
     persist(get());
@@ -98,18 +120,25 @@ export const usePopupStore = create<PopupState>((set, get) => ({
     set({ bidReport });
     persist(get());
   },
-  setError: (error) => set({ error }),
+  setError: (error) => {
+    set({ error });
+    persist(get());
+  },
 
   hydrate: async () => {
     if (get().hydrated) return;
     try {
       const session = await getPopupSession();
       if (session) {
+        // Only restore the working artifacts. `step` and `error` are
+        // ephemeral by design — see the toSession() comment for why.
         set({
           jd: session.jd,
           resume: session.resume,
           proposal: session.proposal,
           bidReport: session.bidReport,
+          step: 'idle',
+          error: null,
         });
       }
     } catch (err) {
@@ -117,6 +146,20 @@ export const usePopupStore = create<PopupState>((set, get) => ({
     } finally {
       set({ hydrated: true });
     }
+  },
+
+  syncFromSession: (session: PopupSession) => {
+    // Direct set() — does NOT go through the setX wrappers, so persist()
+    // is NOT re-triggered. This breaks the otherwise-infinite onChanged loop
+    // (popup write → storage event → popup re-applies → re-write …).
+    // Only the working artifacts flow back through this path; step and
+    // error are owned by the in-popup flow.
+    set({
+      jd: session.jd,
+      resume: session.resume,
+      proposal: session.proposal,
+      bidReport: session.bidReport,
+    });
   },
 
   refresh: async () => {

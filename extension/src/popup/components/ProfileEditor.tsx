@@ -683,6 +683,7 @@ export const ProfileEditor: FC = () => {
                   disability: 'No, I do not have a disability',
                   transgender: 'no',
                   hispanicLatino: 'no',
+                  lgbtq: 'no',
                 },
                 bidPreferences: {
                   ...(d.bidPreferences ?? EMPTY_BID_PREFERENCES),
@@ -783,6 +784,12 @@ export const ProfileEditor: FC = () => {
                 value={demo.hispanicLatino}
                 options={yesNo}
                 onChange={(v) => patchDemographics({ hispanicLatino: v as YesNoPNTS })}
+              />
+              <Select
+                label="Do you identify as LGBTQ?"
+                value={demo.lgbtq}
+                options={yesNo}
+                onChange={(v) => patchDemographics({ lgbtq: v as YesNoPNTS })}
               />
               <Field
                 label="Pronouns"
