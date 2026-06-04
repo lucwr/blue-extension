@@ -12,6 +12,7 @@ import { useExtraction } from './hooks/useExtraction';
 import { useGenerateProposal, useGenerateResume } from './hooks/useGeneration';
 import { usePopupStore } from './store';
 import { downloadResumePdf } from '@/services/pdf.service';
+import { getMasterProfile } from '@/storage';
 import { StorageKeys } from '@/storage/keys';
 import type { PopupSession } from '@/storage';
 import type { ProposalTone } from '@/types/proposal';
@@ -20,6 +21,7 @@ type View = 'job' | 'profile';
 
 export const App: FC = () => {
   const [view, setView] = useState<View>('job');
+  const [hasProfile, setHasProfile] = useState<boolean>(false);
   const { hydrated, step, jd, resume, proposal, bidReport, error, hydrate, refresh } =
     usePopupStore();
 
@@ -42,6 +44,8 @@ export const App: FC = () => {
   // Live-sync from the background while the popup is open. The
   // chrome.storage.onChanged listener picks up writes the background made
   // while the popup was closed (or open elsewhere) — see store comment.
+  // Also watches MasterProfile changes so the bid card unlocks the moment
+  // the user saves their profile, without forcing a popup reopen.
   useEffect(() => {
     const onChanged = (
       changes: { [key: string]: chrome.storage.StorageChange },
@@ -49,12 +53,17 @@ export const App: FC = () => {
     ): void => {
       if (area !== 'local') return;
       const change = changes[StorageKeys.PopupSession];
-      if (!change) return;
-      const next = change.newValue as PopupSession | undefined;
-      if (!next) return;
-      usePopupStore.getState().syncFromSession(next);
+      if (change) {
+        const next = change.newValue as PopupSession | undefined;
+        if (next) usePopupStore.getState().syncFromSession(next);
+      }
+      const profileChange = changes[StorageKeys.MasterProfile];
+      if (profileChange) {
+        setHasProfile(Boolean(profileChange.newValue));
+      }
     };
     chrome.storage.onChanged.addListener(onChanged);
+    void getMasterProfile().then((p) => setHasProfile(Boolean(p)));
     return () => chrome.storage.onChanged.removeListener(onChanged);
   }, []);
 
@@ -172,11 +181,16 @@ export const App: FC = () => {
               />
             )}
             {/* BidPanel.onBid === useAutofillBid().autofill — unchanged.
-                BidPanel.onPickUnmatched === useAutofillBid().onPickUnmatched. */}
+                BidPanel.onPickUnmatched === useAutofillBid().onPickUnmatched.
+                Gated only by `hasProfile` so the user can fill static
+                contact / EEO / demographic fields before generating
+                a resume. Resume + proposal upgrade the run (file upload,
+                LLM Q&A) but are NOT required to start. */}
             <BidPanel
-              canBid={Boolean(
-                resume && (jd?.hasCoverLetterField === false ? true : proposal),
-              )}
+              canBid={hasProfile}
+              hasResume={Boolean(resume)}
+              hasProposal={Boolean(proposal)}
+              proposalRequired={jd?.hasCoverLetterField !== false}
               bidReport={bidReport}
               disabled={busy}
               busy={step === 'auto-filling' || step === 'answering-questions'}

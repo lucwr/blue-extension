@@ -59,14 +59,22 @@ interface UseAutofillBid {
  *   1. Send a bid payload to the content script. The page is scanned, known
  *      fields are filled, and any free-text questions we can't classify come
  *      back as `pendingQuestions`.
- *   2. If there are pending questions, ask the backend LLM to answer them
- *      (in one batched call, grounded in jd + resume + profile).
+ *   2. If there are pending questions AND we have a JD + resume to ground
+ *      the model, ask the backend LLM to answer them (in one batched call).
+ *      When JD or resume is missing, the LLM stage is SKIPPED and the
+ *      pending questions stay in the report for the user to answer
+ *      manually — the static profile-driven fills still happen.
  *   3. Send the answers back to the content script to write them into the
  *      page.
  *
- * The proposal step is optional. When the page has no cover-letter field
- * (detected during extraction), the user can bid without generating a
- * proposal at all — the autofill engine skips that category.
+ * The flow can run as soon as the master profile exists. JD, resume, and
+ * proposal are all OPTIONAL upgrades:
+ *   - JD missing       → no source-of-truth for LLM Q&A; that stage skipped.
+ *   - resume missing   → falls back to profile.summary + profile.experience
+ *                        title for `targetTitle`/`summary`; no resume PDF
+ *                        upload; LLM Q&A stage skipped.
+ *   - proposal missing → no cover-letter PDF upload; cover-letter text
+ *                        category fills from `summary` (existing behavior).
  *
  * Exposes `onPickUnmatched` alongside the trigger so the BidPanel can offer
  * manual one-click picks for the fields the engine flagged as unmatched.
@@ -75,30 +83,9 @@ export function useAutofillBid(): UseAutofillBid {
   const { jd, resume, proposal, setBidReport, setError, setStep } = usePopupStore();
 
   const autofill = useCallback(async () => {
-    if (!jd) {
-      setError({
-        code: 'UNKNOWN',
-        message: 'Extract the job description first.',
-      });
-      return;
-    }
-    if (!resume) {
-      setError({
-        code: 'UNKNOWN',
-        message: 'Generate the resume first — the bid needs your tailored summary and title.',
-      });
-      return;
-    }
-    // Proposal is only required when the page actually has a cover-letter
-    // field. Otherwise we let the bid proceed without one.
-    const needsProposal = jd.hasCoverLetterField !== false;
-    if (needsProposal && !proposal) {
-      setError({
-        code: 'UNKNOWN',
-        message: 'This bid page has a cover-letter field. Generate the proposal first.',
-      });
-      return;
-    }
+    // Master profile is the ONLY hard requirement — every static field
+    // (contact, demographics, EEO, bid preferences, current company/title)
+    // comes from it. Resume / proposal / JD are optional upgrades.
     const profile = await getMasterProfile();
     if (!profile) {
       setError({
@@ -112,26 +99,30 @@ export function useAutofillBid(): UseAutofillBid {
     setStep('auto-filling');
     setError(null);
 
-    // Render the resume PDF (and, when we have a proposal, the cover letter
-    // PDF) BEFORE handing off to the content script — the autofill engine
-    // will programmatically upload them into any matching file-input field
-    // it finds. Render failures don't block the rest of the autofill flow:
-    // we just skip the file-upload pass and let the user drop the file
-    // manually if needed.
+    // Render PDFs only when the corresponding artifacts exist. Render
+    // failures don't block the rest of the autofill flow; we just skip the
+    // file-upload pass and let the user drop the file manually if needed.
     let resumePdf: { filename: string; base64: string } | undefined;
     let coverLetterPdf: { filename: string; base64: string } | undefined;
-    try {
-      resumePdf = renderResumePdfBase64(resume);
-    } catch (err) {
-      log.warn('failed to render resume PDF for autofill upload', err);
+    if (resume) {
+      try {
+        resumePdf = renderResumePdfBase64(resume);
+      } catch (err) {
+        log.warn('failed to render resume PDF for autofill upload', err);
+      }
     }
-    if (proposal) {
+    if (resume && proposal) {
       try {
         coverLetterPdf = renderCoverLetterPdfBase64(proposal, resume);
       } catch (err) {
         log.warn('failed to render cover-letter PDF for autofill upload', err);
       }
     }
+
+    // Most recent role (index 0 in the canonical newest-first ordering)
+    // drives both `current-company` / `current-title` autofill AND the
+    // fallback `targetTitle` when no resume exists yet.
+    const mostRecentRole = profile.experience[0] ?? resume?.experience[0] ?? null;
 
     const data: BidPayload = {
       contact: {
@@ -143,25 +134,21 @@ export function useAutofillBid(): UseAutofillBid {
         ...(profile.contact.github ? { github: profile.contact.github } : {}),
         ...(profile.contact.website ? { website: profile.contact.website } : {}),
       },
-      targetTitle: resume.targetTitle,
-      summary: resume.summary,
+      // Title/summary fall back through: tailored resume → JD title →
+      // profile's most-recent role title / profile summary. Empty string
+      // is a valid no-fill signal for the engine (it just won't write
+      // those categories).
+      targetTitle: resume?.targetTitle ?? jd?.title ?? mostRecentRole?.title ?? '',
+      summary: resume?.summary ?? profile.summary ?? '',
       yearsOfExperience: computeYearsOfExperience(profile.experience),
       ...(resumePdf ? { resumePdf } : {}),
       ...(coverLetterPdf ? { coverLetterPdf } : {}),
-      // Most recent role lives at index 0 of the master profile's experience
-      // array (the canonical newest-first ordering used everywhere else).
-      // Falls back to the generated resume's experience if the master profile
-      // has none — keeps "current company" working for users who imported a
-      // resume but haven't manually filled the Profile tab.
-      ...(() => {
-        const recent =
-          profile.experience[0] ?? resume.experience[0] ?? null;
-        if (!recent) return {};
-        return {
-          ...(recent.company ? { currentCompany: recent.company } : {}),
-          ...(recent.title ? { currentTitle: recent.title } : {}),
-        };
-      })(),
+      ...(mostRecentRole
+        ? {
+            ...(mostRecentRole.company ? { currentCompany: mostRecentRole.company } : {}),
+            ...(mostRecentRole.title ? { currentTitle: mostRecentRole.title } : {}),
+          }
+        : {}),
       ...(proposal
         ? {
             proposal: {
@@ -202,7 +189,13 @@ export function useAutofillBid(): UseAutofillBid {
       // Stage 2 — LLM-answer any unclassified question-like fields, then
       // write them back. Best-effort: a Q&A failure should not throw away
       // the successful fills the user already sees.
-      if (report.pendingQuestions.length > 0) {
+      //
+      // The Q&A endpoint needs JD + tailored resume as grounding context
+      // (see backend `answer-questions` prompt). When either is absent we
+      // SKIP this stage entirely — the pending questions remain in the
+      // report so the user can answer them manually, and the static
+      // profile-driven fills are still committed below.
+      if (report.pendingQuestions.length > 0 && jd && resume) {
         setStep('answering-questions');
         const answerResult = await sendToBackground({
           type: 'BG_ANSWER_QUESTIONS',

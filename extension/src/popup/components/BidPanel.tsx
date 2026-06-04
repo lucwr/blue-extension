@@ -12,7 +12,14 @@ import type { AutofillReport, AutofillUnmatchedField } from '@/types/messages';
 import { ActionCard, PrimaryButton, type StatusTone } from './ui';
 
 interface Props {
+  /** True once the master profile is saved. Static fields fill from it. */
   canBid: boolean;
+  /** True when a tailored resume exists — unlocks resume-PDF upload + LLM Q&A. */
+  hasResume: boolean;
+  /** True when a generated proposal exists — unlocks cover-letter PDF upload. */
+  hasProposal: boolean;
+  /** True when the JD signals a cover-letter field on the page. */
+  proposalRequired: boolean;
   bidReport: AutofillReport | null;
   disabled: boolean;
   busy: boolean;
@@ -87,6 +94,9 @@ const CheckIcon: FC<{ className?: string }> = ({ className }) => (
 
 export const BidPanel: FC<Props> = ({
   canBid,
+  hasResume,
+  hasProposal,
+  proposalRequired,
   bidReport,
   disabled,
   busy,
@@ -94,6 +104,15 @@ export const BidPanel: FC<Props> = ({
   onBid,
   onPickUnmatched,
 }) => {
+  // Coverage hint shown beneath the button: tells the user which inputs
+  // are wired up for THIS run so they know what to expect.
+  const coverage: string[] = [];
+  coverage.push('contact');
+  coverage.push('EEO');
+  if (hasResume) coverage.push('resume PDF');
+  if (hasResume) coverage.push('AI answers');
+  if (hasProposal) coverage.push('cover-letter PDF');
+  const coverageLine = coverage.join(' · ');
   const filled = bidReport?.filled ?? [];
   const pending = bidReport?.pendingQuestions ?? [];
   const unmatched = bidReport?.unmatchedFields ?? [];
@@ -106,13 +125,13 @@ export const BidPanel: FC<Props> = ({
       ? { tone: 'done', label: 'Completed' }
       : canBid
         ? { tone: 'ready', label: 'Ready' }
-        : { tone: 'idle', label: 'Awaiting deps' };
+        : { tone: 'idle', label: 'Save profile' };
 
   const preview = bidReport
     ? `${filled.length}/${bidReport.totalFields} fields filled${relativeTime(bidReport.ranAt) ? ` · ${relativeTime(bidReport.ranAt)}` : ''}`
     : canBid
-      ? 'Open the bid page, then auto-fill.'
-      : 'Resume (+ proposal if required) needed first.';
+      ? `Fills: ${coverageLine}`
+      : 'Save your master profile to enable auto-fill.';
 
   return (
     <ActionCard
@@ -237,14 +256,26 @@ export const BidPanel: FC<Props> = ({
           </div>
         ) : !canBid ? (
           <p className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-[11px] text-slate-500">
-            Generate the resume first. If the bid page has a cover-letter field, generate the
-            proposal too.
+            Open the <strong>Profile</strong> tab and save your master profile to enable auto-fill
+            of contact + EEO + demographic fields.
           </p>
         ) : (
-          <p className="rounded-lg border border-dashed border-brand-200 bg-white px-3 py-2 text-[11px] text-slate-600">
-            Open the bid page in the active tab, then click <strong>Auto-Fill Application</strong>.
-            The extension fills contact + EEO fields and asks the AI to draft open-ended answers.
-          </p>
+          <div className="space-y-1.5">
+            <p className="rounded-lg border border-dashed border-brand-200 bg-white px-3 py-2 text-[11px] text-slate-600">
+              Open the bid page in the active tab, then click <strong>Auto-Fill Application</strong>.
+              Static fields (contact, EEO, demographics, current role) fill from your profile.
+            </p>
+            {(!hasResume || (proposalRequired && !hasProposal)) && (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] text-amber-800">
+                Tip: {!hasResume && 'generate the resume'}
+                {!hasResume && proposalRequired && !hasProposal && ' and '}
+                {proposalRequired && !hasProposal && 'generate the proposal'}{' '}
+                to also upload the PDF
+                {!hasResume && proposalRequired && !hasProposal ? 's' : ''} and get AI-drafted
+                answers to free-text questions.
+              </p>
+            )}
+          </div>
         )
       }
     />
