@@ -11,6 +11,11 @@ export function createApp(): Express {
   const app = express();
 
   app.disable('x-powered-by');
+  // Trust the first hop in `X-Forwarded-For` — required behind Railway /
+  // Fly / Render proxies so `req.ip` and the rate-limiter see real
+  // client IPs instead of the proxy's. Without this, express-rate-limit
+  // logs a startup ValidationError and bypasses its keyGenerator.
+  app.set('trust proxy', 1);
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(
     cors({
