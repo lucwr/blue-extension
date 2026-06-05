@@ -71,7 +71,7 @@ interface StorageShape {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  backendBaseUrl: 'http://localhost:8787',
+  backendBaseUrl: 'https://blue-extension-production.up.railway.app',
   defaultTemplateId: 'default-ats',
   defaultProposalTone: 'confident',
   historyLimit: 50,

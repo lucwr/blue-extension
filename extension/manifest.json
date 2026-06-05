@@ -49,7 +49,8 @@
     "https://wellfound.com/*",
     "https://*.greenhouse.io/*",
     "https://job-boards.greenhouse.io/*",
-    "http://localhost:8787/*"
+    "http://localhost:8787/*",
+    "https://blue-extension-production.up.railway.app/*"
   ],
   "web_accessible_resources": [
     {
