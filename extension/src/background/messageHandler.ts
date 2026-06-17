@@ -12,6 +12,7 @@ import type {
   GenerateResumeMessage,
   HealthcheckMessage,
   ImportResumePdfMessage,
+  JobSearchMessage,
   MessageResult,
 } from '@/types/messages';
 import { createLogger } from '@/utils/logger';
@@ -150,6 +151,15 @@ async function handleAnswerQuestions(
   }
 }
 
+async function handleJobSearch(msg: JobSearchMessage): Promise<MessageResult<'BG_JOB_SEARCH'>> {
+  try {
+    const data = await api.searchJobs(msg.payload);
+    return { ok: true, data };
+  } catch (err) {
+    return { ok: false, error: toAppError(err) };
+  }
+}
+
 export async function dispatch(message: AppMessage): Promise<MessageResult<AppMessage['type']>> {
   log.debug('dispatch', message.type);
   // Bootstrap settings on first use so DEFAULT_SETTINGS always seeds in.
@@ -166,6 +176,8 @@ export async function dispatch(message: AppMessage): Promise<MessageResult<AppMe
       return handleImportResumePdf(message);
     case 'BG_ANSWER_QUESTIONS':
       return handleAnswerQuestions(message);
+    case 'BG_JOB_SEARCH':
+      return handleJobSearch(message);
     case 'CS_EXTRACT_JD':
     case 'CS_AUTOFILL_BID':
     case 'CS_FILL_ANSWERS':

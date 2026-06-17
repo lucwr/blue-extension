@@ -6,7 +6,7 @@
 import type { FC } from 'react';
 import { GhostButton } from './ui';
 
-type View = 'job' | 'profile';
+type View = 'job' | 'search' | 'profile';
 
 interface Props {
   view: View;
@@ -88,6 +88,9 @@ export const AppHeader: FC<Props> = ({ view, onSwitchView, onRefresh, canRefresh
       <nav className="flex gap-0.5 rounded-lg bg-slate-100/80 p-0.5" role="tablist">
         <TabButton active={view === 'job'} onClick={() => onSwitchView('job')}>
           Job
+        </TabButton>
+        <TabButton active={view === 'search'} onClick={() => onSwitchView('search')}>
+          Search
         </TabButton>
         <TabButton active={view === 'profile'} onClick={() => onSwitchView('profile')}>
           Profile

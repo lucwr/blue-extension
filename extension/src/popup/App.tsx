@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FC } from 'react';
 import { AppHeader } from './components/AppHeader';
 import { BidPanel } from './components/BidPanel';
 import { JobPanel } from './components/JobPanel';
+import { JobSearchView } from './components/JobSearchView';
 import { ProfileEditor } from './components/ProfileEditor';
 import { ProposalPanel } from './components/ProposalPanel';
 import { ResumePanel } from './components/ResumePanel';
@@ -17,7 +18,7 @@ import { StorageKeys } from '@/storage/keys';
 import type { PopupSession } from '@/storage';
 import type { ProposalTone } from '@/types/proposal';
 
-type View = 'job' | 'profile';
+type View = 'job' | 'search' | 'profile';
 
 export const App: FC = () => {
   const [view, setView] = useState<View>('job');
@@ -199,6 +200,8 @@ export const App: FC = () => {
               onPickUnmatched={(u, value) => void onPickUnmatched(u, value)}
             />
           </div>
+        ) : view === 'search' ? (
+          <JobSearchView />
         ) : (
           <ProfileEditor />
         )}

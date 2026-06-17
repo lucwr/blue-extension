@@ -17,7 +17,18 @@ export type MessageType =
   | 'BG_GENERATE_PROPOSAL'
   | 'BG_IMPORT_RESUME_PDF'
   | 'BG_ANSWER_QUESTIONS'
+  | 'BG_JOB_SEARCH'
   | 'BG_HEALTHCHECK';
+
+/**
+ * One result from the Google Custom Search → Sheets job search. Mirrors the
+ * backend `JobResult` shape (services/jobSearch.ts).
+ */
+export interface JobSearchResult {
+  title: string;
+  link: string;
+  snippet: string;
+}
 
 interface BaseMessage<T extends MessageType, P> {
   type: T;
@@ -252,6 +263,10 @@ export type ImportResumePdfMessage = BaseMessage<
   'BG_IMPORT_RESUME_PDF',
   { pdfBase64: string }
 >;
+export type JobSearchMessage = BaseMessage<
+  'BG_JOB_SEARCH',
+  { query: string; max?: number }
+>;
 
 export type AppMessage =
   | ExtractJdMessage
@@ -262,6 +277,7 @@ export type AppMessage =
   | GenerateProposalMessage
   | AnswerQuestionsMessage
   | ImportResumePdfMessage
+  | JobSearchMessage
   | HealthcheckMessage;
 
 export interface MessageResponseMap {
@@ -273,6 +289,7 @@ export interface MessageResponseMap {
   BG_GENERATE_PROPOSAL: ProposalJson;
   BG_IMPORT_RESUME_PDF: MasterProfile;
   BG_ANSWER_QUESTIONS: { answers: AnsweredQuestion[] };
+  BG_JOB_SEARCH: { jobs: JobSearchResult[]; saved: number; sheetUrl: string | null };
   BG_HEALTHCHECK: { ok: true; backendReachable: boolean; version: string };
 }
 

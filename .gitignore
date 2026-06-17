@@ -7,6 +7,12 @@ build/
 .env.local
 .env.*.local
 
+# Google service-account credentials — NEVER commit these
+google-service-account.json
+backend/google-service-account.json
+resume-maker-jobsearch-*.json
+*-service-account*.json
+
 # Tooling caches
 .vite/
 .turbo/

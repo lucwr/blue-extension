@@ -14,6 +14,7 @@ import type {
   AppError,
   AppErrorCode,
   AutofillPendingQuestion,
+  JobSearchResult,
 } from '@/types/messages';
 import type { ProposalJson, ProposalTone } from '@/types/proposal';
 import type { ResumeJson, MasterProfile } from '@/types/resume';
@@ -195,6 +196,22 @@ export const api = {
       answers.push({ fieldIndex, answer: a.text });
     }
     return { answers };
+  },
+
+  async searchJobs(input: {
+    query: string;
+    max?: number;
+  }): Promise<{ jobs: JobSearchResult[]; saved: number; sheetUrl: string | null }> {
+    // Paging Google (up to ~3-4 sequential calls) + a Sheets append — well
+    // within the default timeout, but set it explicitly for clarity.
+    return request<{ jobs: JobSearchResult[]; saved: number; sheetUrl: string | null }>(
+      '/api/job-search',
+      {
+        method: 'POST',
+        body: input,
+        timeoutMs: 60_000,
+      },
+    );
   },
 };
 
