@@ -1,12 +1,14 @@
 /**
  * JWT auth middleware. Phase-1 stance:
  *   - If the request carries a Bearer token, verify it and attach `req.auth`.
- *   - If no token is present and we are in dev mode, we still allow through
- *     so a freshly-installed extension can hit /api/health before the
- *     enrollment flow exists. In production we 401 instead.
+ *   - If no token is present, allow through (in every environment). The
+ *     extension has no enrollment flow yet, so requiring a token in
+ *     production would 401 every AI call (import-pdf, resume, proposal, …).
+ *     Tokens that ARE sent are still verified and rejected when invalid.
  *
  * A future `/api/auth/enroll` endpoint will issue tokens to extension
- * installations. That route is intentionally not implemented yet (Phase 5).
+ * installations (Phase 5). Once that ships, tighten this back up so a
+ * missing token 401s in production.
  */
 import type { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
@@ -28,11 +30,8 @@ declare module 'express-serve-static-core' {
 export function requireAuth(req: Request, _res: Response, next: NextFunction): void {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) {
-    if (config.isDev) {
-      next();
-      return;
-    }
-    next(new HttpError(401, 'UNAUTHORIZED', 'Missing bearer token'));
+    // No token: allow through until the enrollment flow (Phase 5) exists.
+    next();
     return;
   }
 
