@@ -7,8 +7,11 @@
  *   authenticating with a service account.
  *
  * Required env (see .env.example):
- *   GOOGLE_API_KEY, GOOGLE_CSE_ID, GOOGLE_SHEET_ID,
- *   GOOGLE_SERVICE_ACCOUNT_FILE, GOOGLE_SHEET_RANGE
+ *   GOOGLE_API_KEY, GOOGLE_CSE_ID, GOOGLE_SHEET_ID, GOOGLE_SHEET_RANGE
+ *   Service-account credentials, ONE of:
+ *     - GOOGLE_SERVICE_ACCOUNT_JSON  (the full JSON, inline — use this on
+ *       hosts with no persistent filesystem, e.g. Railway), or
+ *     - GOOGLE_SERVICE_ACCOUNT_FILE  (path to the JSON key file — local dev)
  */
 import axios from "axios";
 import { google } from "googleapis";
@@ -25,6 +28,27 @@ function requireEnv(name: string): string {
     throw new Error(`Missing env var ${name} — set it in backend/.env`);
   }
   return v;
+}
+
+/**
+ * Resolve service-account credentials for GoogleAuth from either an inline
+ * JSON env var (preferred on hosts without a persistent filesystem) or a key
+ * file path (local dev). Returns the matching GoogleAuth option.
+ */
+function serviceAccountAuth(): { credentials: Record<string, unknown> } | { keyFile: string } {
+  const inline = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (inline && !inline.startsWith("replace-")) {
+    let credentials: Record<string, unknown>;
+    try {
+      credentials = JSON.parse(inline);
+    } catch {
+      throw new Error(
+        "GOOGLE_SERVICE_ACCOUNT_JSON is set but is not valid JSON — paste the full service-account key file contents.",
+      );
+    }
+    return { credentials };
+  }
+  return { keyFile: requireEnv("GOOGLE_SERVICE_ACCOUNT_FILE") };
 }
 
 /**
@@ -65,11 +89,10 @@ export async function saveToSheet(jobs: JobResult[]): Promise<number> {
   if (jobs.length === 0) return 0;
 
   const spreadsheetId = requireEnv("GOOGLE_SHEET_ID");
-  const keyFile = requireEnv("GOOGLE_SERVICE_ACCOUNT_FILE");
   const range = process.env.GOOGLE_SHEET_RANGE ?? "Sheet1!A:E";
 
   const auth = new google.auth.GoogleAuth({
-    keyFile,
+    ...serviceAccountAuth(),
     scopes: ["https://www.googleapis.com/auth/spreadsheets"],
   });
   const sheets = google.sheets({ version: "v4", auth });
