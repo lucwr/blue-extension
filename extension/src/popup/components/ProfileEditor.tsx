@@ -15,6 +15,7 @@
  */
 import { useEffect, useRef, useState, type FC, type ReactNode } from 'react';
 import { sendToBackground } from '@/services/messaging';
+import { getSettings, updateSettings } from '@/storage';
 import {
   EMPTY_BID_PREFERENCES,
   EMPTY_DEMOGRAPHICS,
@@ -223,11 +224,19 @@ export const ProfileEditor: FC = () => {
   const [flash, setFlash] = useState<string | null>(null);
   const [jsonImport, setJsonImport] = useState('');
   const [pdfImporting, setPdfImporting] = useState(false);
+  const [resumeSaveFolder, setResumeSaveFolder] = useState('');
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (profile) setDraft(profile);
   }, [profile]);
+
+  // Resume auto-save folder lives in Settings (not the master profile), but is
+  // edited here so the user configures everything in one place. Loaded once;
+  // persisted alongside the profile by onSave.
+  useEffect(() => {
+    void getSettings().then((s) => setResumeSaveFolder(s.resumeSaveFolder));
+  }, []);
 
   const setContact = (patch: Partial<ResumeContact>): void =>
     setDraft((d) => ({ ...d, contact: { ...d.contact, ...patch } }));
@@ -313,6 +322,7 @@ export const ProfileEditor: FC = () => {
 
     setErrors([]);
     await save(cleaned);
+    await updateSettings({ resumeSaveFolder: resumeSaveFolder.trim() });
     showFlash('Saved');
   };
 
@@ -414,6 +424,23 @@ export const ProfileEditor: FC = () => {
           {pdfImporting ? 'Parsing your resume…' : 'Choose PDF'}
         </button>
       </div>
+
+      <Section
+        title="Resume auto-save"
+        subtitle="On Auto-Fill, a dated copy of the generated resume is saved here while it's uploaded to the job board."
+      >
+        <Field
+          label="Save folder (under Downloads)"
+          placeholder="e.g. Resumes"
+          value={resumeSaveFolder}
+          onChange={setResumeSaveFolder}
+        />
+        <p className="text-[10px] text-slate-400">
+          Browser security limits saving to a sub-folder of your Downloads directory. All resumes
+          are saved flat in this folder. Leave blank to turn auto-save off. Saved as{' '}
+          <span className="font-mono">Name_CV_Role_Company_date.pdf</span>.
+        </p>
+      </Section>
 
       <Section title="Contact">
         <Field

@@ -718,6 +718,104 @@ export function renderCoverLetterPdfBase64(
   return { filename, base64 };
 }
 
+/** Strip on-disk-illegal chars and collapse whitespace into single spaces. */
+function sanitizePathSegment(s: string): string {
+  return s
+    .replace(/[\\/:*?"<>|]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Zero-pad and assemble a filesystem-safe local timestamp `YYYY-MM-DD_HHMMSS`.
+ * Local time (not UTC) so the stamp matches the user's wall clock.
+ */
+function timestampSlug(when: Date): string {
+  const p = (n: number, w = 2): string => String(n).padStart(w, '0');
+  const date = `${when.getFullYear()}-${p(when.getMonth() + 1)}-${p(when.getDate())}`;
+  const time = `${p(when.getHours())}${p(when.getMinutes())}${p(when.getSeconds())}`;
+  return `${date}_${time}`;
+}
+
+/**
+ * Build the ARCHIVE filename — deliberately distinct from the upload filename
+ * (`buildResumeFilename`) so the saved copy is identifiable per application:
+ *   `Firstname_Lastname_CV_Role__Company_YYYY-MM-DD_HHMMSS.pdf`
+ * Company is omitted when unknown. All parts are sanitized for disk.
+ */
+function buildArchiveResumeFilename(
+  fullName: string,
+  targetTitle: string,
+  company: string | null,
+  when: Date,
+): string {
+  const stripIllegal = (s: string): string => s.replace(/[\\/:*?"<>|]/g, '');
+
+  const nameTokens = stripIllegal(fullName).trim().split(/\s+/).filter(Boolean);
+  const first = nameTokens[0] ?? 'Resume';
+  const last = nameTokens.length > 1 ? nameTokens[nameTokens.length - 1] : '';
+  const namePart = last ? `${first}_${last}` : first;
+
+  const roleSlug = stripIllegal(targetTitle).replace(/\s+/g, '') || 'CV';
+  const companySlug = company ? stripIllegal(company).replace(/\s+/g, '') : '';
+  const companyPart = companySlug ? `_${companySlug}` : '';
+
+  return `${namePart}_CV_${roleSlug}_${companyPart}_${timestampSlug(when)}.pdf`
+    .replace(/__+/g, '_')
+    .slice(0, 200);
+}
+
+interface ArchiveOptions {
+  /** Hiring company name — used in the archive filename. */
+  company: string | null;
+  /** Downloads sub-folder root (Settings.resumeSaveFolder). */
+  folder: string;
+  /** Pre-rendered PDF bytes (base64). Reuses the same bytes uploaded to the form. */
+  base64: string;
+  fullName: string;
+  targetTitle: string;
+  /** Defaults to now — injectable for deterministic tests. */
+  when?: Date;
+}
+
+/**
+ * Auto-archive a copy of the generated resume into
+ * `Downloads/<folder>/<Company>/<archive-filename>.pdf` via chrome.downloads.
+ *
+ * Silent (no Save-As dialog), non-destructive (uniquifies on name clash), and
+ * best-effort: callers should swallow errors so a failed archive never blocks
+ * the autofill/upload flow. Returns the relative download path on success.
+ *
+ * Browser sandbox note: `filename` is always relative to the Downloads dir —
+ * absolute paths and `..` segments are rejected by the API, so each segment is
+ * sanitized first. Reuses the already-rendered `base64` (identical to the
+ * uploaded bytes); only the filename differs. Files are saved flat into
+ * `<folder>` — no per-company sub-folder; the company is in the filename.
+ */
+export async function archiveResumePdf(options: ArchiveOptions): Promise<string> {
+  const when = options.when ?? new Date();
+  const filename = buildArchiveResumeFilename(
+    options.fullName,
+    options.targetTitle,
+    options.company,
+    when,
+  );
+
+  const root = sanitizePathSegment(options.folder);
+  const relativePath = [root, filename].filter(Boolean).join('/');
+
+  const url = `data:application/pdf;base64,${options.base64}`;
+  const downloadId = await chrome.downloads.download({
+    url,
+    filename: relativePath,
+    conflictAction: 'uniquify',
+    saveAs: false,
+  });
+
+  log.info('resume archived', { downloadId, relativePath });
+  return relativePath;
+}
+
 export async function downloadResumePdf(
   resume: ResumeJson,
   options: DownloadOptions = {},

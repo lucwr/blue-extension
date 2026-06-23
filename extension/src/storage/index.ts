@@ -15,6 +15,14 @@ export interface Settings {
   defaultProposalTone: 'confident' | 'consultative' | 'warm' | 'concise' | 'enthusiastic';
   /** Hard-cap how many history entries we keep on-device. */
   historyLimit: number;
+  /**
+   * Sub-folder (relative to the browser's Downloads directory) where a copy
+   * of every generated resume is auto-archived on Auto-Fill. Empty string
+   * disables auto-archiving. A per-company sub-folder is created beneath it.
+   * Browser sandboxing forbids absolute paths, so this is always a Downloads
+   * sub-path (e.g. "Resumes" → Downloads/Resumes/<Company>/…).
+   */
+  resumeSaveFolder: string;
 }
 
 export interface HistoryEntry {
@@ -75,6 +83,7 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultTemplateId: 'default-ats',
   defaultProposalTone: 'confident',
   historyLimit: 50,
+  resumeSaveFolder: '',
 };
 
 export async function getValue<K extends StorageKey>(
@@ -103,6 +112,13 @@ export async function getSettings(): Promise<Settings> {
   }
   // Merge to backfill any new defaults introduced by upgrades.
   return { ...DEFAULT_SETTINGS, ...existing };
+}
+
+/** Shallow-merge a patch into the persisted settings and return the result. */
+export async function updateSettings(patch: Partial<Settings>): Promise<Settings> {
+  const next = { ...(await getSettings()), ...patch };
+  await setValue(StorageKeys.Settings, next);
+  return next;
 }
 
 export async function pushHistory(entry: HistoryEntry): Promise<HistoryEntry[]> {

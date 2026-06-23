@@ -1,10 +1,15 @@
 import { useCallback } from 'react';
 import { sendToBackground, sendToTab } from '@/services/messaging';
-import { renderCoverLetterPdfBase64, renderResumePdfBase64 } from '@/services/pdf.service';
-import { getMasterProfile } from '@/storage';
+import {
+  archiveResumePdf,
+  renderCoverLetterPdfBase64,
+  renderResumePdfBase64,
+} from '@/services/pdf.service';
+import { getMasterProfile, getSettings } from '@/storage';
 import type { AutofillReport, AutofillUnmatchedField, BidPayload } from '@/types/messages';
 import type { MasterProfile } from '@/types/resume';
 import { createLogger } from '@/utils/logger';
+import { toast } from '../components/ui';
 import { usePopupStore } from '../store';
 
 const log = createLogger('popup:autofill-bid');
@@ -109,6 +114,29 @@ export function useAutofillBid(): UseAutofillBid {
         resumePdf = renderResumePdfBase64(resume);
       } catch (err) {
         log.warn('failed to render resume PDF for autofill upload', err);
+      }
+    }
+
+    // Auto-archive a dated, company-tagged copy of the resume to the folder
+    // configured on the Profile tab — in parallel with the upload below. The
+    // archived filename is intentionally distinct from the uploaded one
+    // (`renderResumePdfBase64`) so each application's copy is identifiable.
+    // Best-effort: a download failure must never block the autofill flow.
+    if (resumePdf) {
+      try {
+        const { resumeSaveFolder } = await getSettings();
+        if (resumeSaveFolder.trim()) {
+          const savedPath = await archiveResumePdf({
+            base64: resumePdf.base64,
+            fullName: resume?.contact.fullName ?? profile.contact.fullName,
+            targetTitle: resume?.targetTitle ?? jd?.title ?? '',
+            company: jd?.company ?? null,
+            folder: resumeSaveFolder,
+          });
+          toast.success(`Resume saved to ${savedPath}`);
+        }
+      } catch (err) {
+        log.warn('failed to auto-archive resume PDF', err);
       }
     }
     if (resume && proposal) {
@@ -343,7 +371,7 @@ export function useAutofillBid(): UseAutofillBid {
       }
     },
     [setBidReport, setError],
-  );
+);
 
   return { autofill, onPickUnmatched };
 }
